@@ -32,7 +32,7 @@
    ;; widgets
    :*theme* :theme :theme-value :button :toggle :spacer :text
    :vstack :hstack :progress :switch :labelled :scroll :virtual-list :visible-range :image
-   :text-field :card
+   :text-field :card :divider
    ;; which field the keyboard is bound to
    :*text-input* :focus-text-field :blur-text-field :pump-text-input :text-focus-id
    ;; JNI, and the Canvas backend over Android's own Skia

@@ -221,7 +221,8 @@ characters nobody typed, so the editor is the truth and this only draws it."
                           :height ,(nth-value 1 (text-extent "M" size))
                           :fill ,(theme :accent)))))))))
 
-(defun card (children &key (padding 12) (gap 8) elevation background radius grow id on-press)
+(defun card (children &key (padding 12) (gap 8) elevation background radius grow stretch
+                             id on-press)
   "A raised surface with content in it.
 
 The whole widget, which is rather the point. Compose's Card is six lines
@@ -232,6 +233,15 @@ this is the six, and a caller who wants the variants writes them."
             :background ,(or background (theme :raised))
             :elevation ,(or elevation (theme-value :elevation 0))
             ,@(when grow (list :grow grow))
+            ,@(when stretch (list :stretch t))
             ,@(when id (list :id id))
             ,@(when on-press (list :on-press on-press)))
      ,@children))
+
+(defun divider (&key (thickness 1) colour)
+  "A hairline across the container it is in.
+
+Stretches rather than taking a width, which is the whole reason it can be
+written at all: a divider that had to be told how wide it is would have to be
+told again every time its parent's padding changed."
+  `(box (:height ,thickness :stretch t :fill ,(or colour (theme :disabled)))))

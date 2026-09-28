@@ -723,12 +723,54 @@ identity, so a test that wants to compare two rectangles must compare numbers."
   (let ((ops (render (layout (card (list '(box (:width 4 :height 4 :fill "#f00")))) 0 0))))
     (check "a card is raised" :shadow (first (first ops)))))
 
+(defun test-stretch ()
+  (format t "stretch~%")
+  ;; A column is as wide as its widest child. A STRETCHED child is as wide as
+  ;; the column, which is the opposite direction of information and is why it
+  ;; needs the constraints protocol rather than a second pass.
+  (let* ((placed (layout '(column (:padding 2)
+                           (box (:width 20 :height 4))
+                           (box (:height 2 :stretch t)))
+                         0 0 (constraints 0 40 0 40)))
+         (kids (mapcar #'box-frame (laid-out-children placed))))
+    (check "an unstretched child keeps its own width" '(2 2 20 4) (first kids))
+    (check "a stretched one fills the content box" '(2 6 36 2) (second kids))
+    (check "and the column is still sized by its content" '(0 0 40 10) (box-frame placed)))
+  ;; A container may say it for all of them at once.
+  (let ((kids (mapcar #'box-frame
+                      (laid-out-children
+                       (layout '(column (:cross-align :stretch)
+                                 (box (:width 5 :height 3))
+                                 (box (:width 5 :height 3)))
+                               0 0 (constraints 0 30 0 30))))))
+    (check "cross-align :stretch stretches every child"
+           '((0 0 30 3) (0 3 30 3)) kids))
+  ;; In a row the cross axis is height, and the rule is written once for both.
+  (let ((kids (mapcar #'box-frame
+                      (laid-out-children
+                       (layout '(row (:cross-align :stretch)
+                                 (box (:width 4 :height 2)))
+                               0 0 (constraints 0 20 0 12))))))
+    (check "in a row it is the height that fills" '((0 0 4 12)) kids))
+  ;; Nothing to fill is not the same as fill nothing.
+  (let ((kids (mapcar #'box-frame
+                      (laid-out-children
+                       (layout '(column () (box (:width 7 :height 3 :stretch t))) 0 0)))))
+    (check "with no room to fill, a stretched child keeps its own size"
+           '((0 0 7 3)) kids))
+  (let ((kids (mapcar #'box-frame
+                      (laid-out-children
+                       (layout `(column (:padding 4) ,(divider))
+                               0 0 (constraints 0 50 0 50))))))
+    (check "a divider spans its container, minus its padding"
+           '((4 4 42 1)) kids)))
+
 (defun run-tests ()
   (setf *failures* 0 *checks* 0)
   (test-geometry) (test-paint) (test-font)
   (test-layout) (test-render) (test-raster)
   (test-input) (test-widgets) (test-constraints) (test-backend) (test-extension)
-  (test-utf8) (test-stacking) (test-text-field) (test-elevation)
+  (test-utf8) (test-stacking) (test-text-field) (test-elevation) (test-stretch)
   (test-composites) (test-corners-and-clipping) (test-scroll) (test-clock) (test-virtual-list) (test-image)
   (format t "~%~D checks, ~D failures~%" *checks* *failures*)
   *failures*)

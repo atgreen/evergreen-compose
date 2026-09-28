@@ -192,6 +192,31 @@ means -- a stack is as large as its largest member, not the other way round."
               (+ top bottom (reduce #'max (mapcar #'second sizes) :initial-value 0))
               sizes))))
 
+(defun stretch-p (view child)
+  "Whether CHILD should fill VIEW's cross axis.
+
+Per child, like Compose's Modifier.fillMaxWidth, because a form wants the field
+full width and the caption above it not. A container may still say it for all of
+them at once, which is what flexbox's align-items: stretch means."
+  (or (view-prop child :stretch)
+      (eq (view-prop view :cross-align) :stretch)))
+
+(defun child-constraints (row stretch main-min main-max cross-room)
+  "Constraints for one child of a stack.
+
+MAIN is the axis the stack runs along, CROSS the other. A stretched child is
+measured TIGHT across -- given a minimum equal to the room and not merely a
+maximum -- which is the whole of what \"fill the width\" means under a
+constraints protocol. No new axis, no second pass, no new primitive.
+
+With no cross room to fill -- an unbounded measure, a subtree being sized for its
+own content -- there is nothing to stretch to, and the child keeps its intrinsic
+size rather than collapsing."
+  (let ((cross-min (if (and stretch cross-room) cross-room 0)))
+    (if row
+        (constraints main-min main-max cross-min cross-room)
+        (constraints cross-min cross-room main-min main-max))))
+
 (defun %stack-metrics (view constraints)
   "The content size of a row or column, as main and cross, including padding.
 
@@ -235,9 +260,8 @@ placement pass a cache hit at every level and the whole walk linear."
             for grow in grows
             for i from 0
             when (zerop grow)
-              do (let ((c (if row
-                              (constraints 0 child-room 0 cross-room)
-                              (constraints 0 cross-room 0 child-room))))
+              do (let ((c (child-constraints row (stretch-p view child)
+                                             0 child-room cross-room)))
                    (setf (nth i sizes)
                          (multiple-value-bind (w h) (measure child c) (list w h c)))))
       (let* ((fixed (loop for size in sizes when size
@@ -256,11 +280,10 @@ placement pass a cache hit at every level and the whole walk linear."
                 do (let* ((share (if (and leftover (plusp shares))
                                      (floor (* remaining grow) shares)
                                      nil))
-                          (c (cond ((null share)
-                                    (if row (constraints 0 child-room 0 cross-room)
-                                        (constraints 0 cross-room 0 child-room)))
-                                   (row (constraints share share 0 cross-room))
-                                   (t (constraints 0 cross-room share share)))))
+                          (stretch (stretch-p view child))
+                          (c (if share
+                                 (child-constraints row stretch share share cross-room)
+                                 (child-constraints row stretch 0 child-room cross-room))))
                      (setf (nth i sizes)
                            (multiple-value-bind (w h) (measure child c) (list w h c)))))
         (let ((main (+ main-pad gaps
@@ -280,7 +303,9 @@ placement pass a cache hit at every level and the whole walk linear."
 (defun align-offset (alignment free)
   "Where a child sits in FREE leftover pixels."
   (ecase alignment
-    ((:start nil) 0)
+    ;; :STRETCH is not a position. A stretched child was measured to fill the
+    ;; axis, so there is no slack left to place it in.
+    ((:start :stretch nil) 0)
     (:center (floor free 2))
     (:end free)))
 
