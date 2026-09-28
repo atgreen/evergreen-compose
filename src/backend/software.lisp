@@ -173,3 +173,24 @@ glance and invisible in a pixel assertion."
                         ink paper)
                     stream)))
     (terpri stream)))
+
+;;; ── as a backend ──────────────────────────────────────────────────────
+
+(defclass software-backend (backend)
+  ((surface :initarg :surface :reader software-backend-surface))
+  (:documentation "Draws into an RGBA surface. The reference implementation:
+no GPU, no window system, no device, which is what makes the framework above it
+testable anywhere."))
+
+(defun make-software-backend (width height &optional (fill +white+))
+  (make-instance 'software-backend :surface (make-surface width height fill)))
+
+(defmethod backend-size ((backend software-backend))
+  (let ((surface (software-backend-surface backend)))
+    (values (surface-width surface) (surface-height surface))))
+
+(defmethod present ((backend software-backend) display-list)
+  (let ((surface (software-backend-surface backend)))
+    (clear surface +white+)
+    (draw surface display-list))
+  backend)

@@ -192,3 +192,25 @@ drawText call, with real shaping and antialiasing."
 (defun canvas-release-pixels (canvas)
   (torcl-ffi:foreign-call (canvas-unlock-pixels canvas) :int '(:pointer :pointer)
                           (list *env* (canvas-bitmap canvas))))
+
+;;; ── as a backend ──────────────────────────────────────────────────────
+
+(defclass canvas-backend (backend)
+  ((canvas :initarg :canvas :reader canvas-backend-canvas))
+  (:documentation "Draws through android.graphics.Canvas, which is Skia."))
+
+(defun make-canvas-backend (width height)
+  (make-instance 'canvas-backend :canvas (canvas-open width height)))
+
+(defmethod backend-size ((backend canvas-backend))
+  (let ((canvas (canvas-backend-canvas backend)))
+    (values (canvas-width canvas) (canvas-height canvas))))
+
+(defmethod present ((backend canvas-backend) display-list)
+  (canvas-draw (canvas-backend-canvas backend) display-list)
+  backend)
+
+(defmethod backend-text-metrics ((backend canvas-backend))
+  ;; CANVAS-OPEN already installed these; returning them makes the arrangement
+  ;; explicit rather than a side effect a caller has to know about.
+  *measure-text*)

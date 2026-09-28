@@ -276,10 +276,27 @@
     (check "a grower fills inside the padding" 80 (rect-width (laid-out-frame kid)))
     (check "and starts after it" 10 (rect-x (laid-out-frame kid)))))
 
+;;; ── the backend protocol ──────────────────────────────────────────────
+(defun test-backend ()
+  (format t "backend~%")
+  ;; CLOS where it belongs: one long-lived object per application, several real
+  ;; implementations of one idea, dispatched once per frame rather than per node.
+  (let ((backend (make-software-backend 40 20)))
+    (check-true "a software backend is a backend" (typep backend 'backend))
+    (check "it reports its size" '(40 20) (multiple-value-list (backend-size backend)))
+    (check "and keeps the bitmap metrics" nil (backend-text-metrics backend))
+    ;; DRAW-FRAME lays out to the backend's own size, so a grower fills it.
+    (let* ((placed (draw-frame backend '(row (:gap 0) (box (:height 5 :grow 1 :fill "#ff0000")))))
+           (kid (first (laid-out-children placed))))
+      (check "draw-frame constrains to the backend" 40
+             (rect-width (laid-out-frame kid)))
+      (check "and it actually painted" (rgb 255 0 0)
+             (pixel-at (software-backend-surface backend) 20 2)))))
+
 (defun run-tests ()
   (setf *failures* 0 *checks* 0)
   (test-geometry) (test-paint) (test-font)
   (test-layout) (test-render) (test-raster)
-  (test-input) (test-widgets) (test-constraints)
+  (test-input) (test-widgets) (test-constraints) (test-backend)
   (format t "~%~D checks, ~D failures~%" *checks* *failures*)
   *failures*)

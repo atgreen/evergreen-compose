@@ -13,5 +13,6 @@
                              (:file "input")
                              (:file "widgets")
                              (:file "display")
+                             (:file "backend")
                              (:module "backend"
                               :components ((:file "software")))))))

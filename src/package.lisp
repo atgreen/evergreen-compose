@@ -20,6 +20,9 @@
    :native-pixel :colour-from-native
    ;; GLES backend (Android)
    :gles-init :gles-surface-size :gles-draw
+   ;; the backend protocol
+   :backend :present :backend-size :backend-text-metrics :use-backend :draw-frame
+   :software-backend :make-software-backend :canvas-backend :make-canvas-backend
    ;; input and dispatch
    :hit-test :dispatch :node-prop :scale-point
    ;; widgets
