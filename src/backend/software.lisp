@@ -161,6 +161,11 @@ and then filling each is what made this slow in the first place."
         (:shadow (dolist (rect (apply #'shadow-rects (rest op)))
                    (destructuring-bind (sx sy sw sh ink) rect
                      (fill-clipped surface sx sy sw sh ink (first clips)))))
+        (:path
+         (destructuring-bind (x y w h view-box commands ink) (rest op)
+           (dolist (span (path-spans commands x y w h view-box))
+             (destructuring-bind (sx sy sw sh) span
+               (fill-clipped surface sx sy sw sh ink (first clips))))))
         (:image (destructuring-bind (x y w h source) (rest op)
                   (draw-image surface x y w h source (first clips))))
         (:glyphs (destructuring-bind (x y text scale colour) (rest op)

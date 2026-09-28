@@ -245,3 +245,84 @@ Stretches rather than taking a width, which is the whole reason it can be
 written at all: a divider that had to be told how wide it is would have to be
 told again every time its parent's padding changed."
   `(box (:height ,thickness :stretch t :fill ,(or colour (theme :disabled)))))
+
+;;; ── Icons ─────────────────────────────────────────────────────────────
+;;;
+;;; Drawn rather than shipped. A real icon set is a font or a directory of SVG,
+;;; both of which are an asset and a licence decision; these are a handful of
+;;; shapes whose geometry is COMPUTED here -- a thick line is four corners either
+;;; side of a segment, a circle is four cubics -- so nothing is transcribed from
+;;; artwork and nothing can be subtly wrong in a way that only looks right.
+;;;
+;;; The 24-unit box is every icon set's convention, so a real set can be dropped
+;;; in later without every call site changing.
+
+(defun thick-line (x1 y1 x2 y2 &optional (width 2))
+  "A segment as a filled quadrilateral: the four corners half a width either
+side of it, along the normal."
+  (let* ((dx (- x2 x1)) (dy (- y2 y1))
+         (span (sqrt (+ (* dx dx) (* dy dy))))
+         (nx (if (zerop span) 0 (/ (* (- dy) width) (* 2 span))))
+         (ny (if (zerop span) 0 (/ (* dx width) (* 2 span)))))
+    (list (list :move (+ x1 nx) (+ y1 ny))
+          (list :line (+ x2 nx) (+ y2 ny))
+          (list :line (- x2 nx) (- y2 ny))
+          (list :line (- x1 nx) (- y1 ny))
+          (list :close))))
+
+(defparameter +circle-k+ 0.5523
+  "How far a cubic's controls sit from a quarter circle's ends, as a fraction of
+the radius. The value that makes the curve match the arc to within a thousandth
+of it, which at icon sizes is a small fraction of one pixel.")
+
+(defun circle-path (cx cy radius &optional (direction 1))
+  "A circle as four cubics. DIRECTION -1 winds it the other way, which under the
+nonzero rule is how a filled disc becomes a ring: put the smaller one inside the
+larger, wound against it, and the overlap cancels."
+  (let ((k (* radius +circle-k+))
+        (s direction))
+    (list (list :move cx (- cy radius))
+          (list :cubic (+ cx (* s k)) (- cy radius) (+ cx (* s radius)) (- cy k)
+                (+ cx (* s radius)) cy)
+          (list :cubic (+ cx (* s radius)) (+ cy k) (+ cx (* s k)) (+ cy radius)
+                cx (+ cy radius))
+          (list :cubic (- cx (* s k)) (+ cy radius) (- cx (* s radius)) (+ cy k)
+                (- cx (* s radius)) cy)
+          (list :cubic (- cx (* s radius)) (- cy k) (- cx (* s k)) (- cy radius)
+                cx (- cy radius))
+          (list :close))))
+
+(defparameter *icons*
+  (list :plus (append (thick-line 4 12 20 12) (thick-line 12 4 12 20))
+        :minus (thick-line 4 12 20 12)
+        :close (append (thick-line 6 6 18 18) (thick-line 18 6 6 18))
+        :check (append (thick-line 5 13 10 18) (thick-line 10 18 19 7))
+        :menu (append (thick-line 4 7 20 7) (thick-line 4 12 20 12)
+                      (thick-line 4 17 20 17))
+        :chevron-right (append (thick-line 9 5 16 12) (thick-line 16 12 9 19))
+        :chevron-left (append (thick-line 15 5 8 12) (thick-line 8 12 15 19))
+        :chevron-up (append (thick-line 5 15 12 8) (thick-line 12 8 19 15))
+        :chevron-down (append (thick-line 5 9 12 16) (thick-line 12 16 19 9))
+        :circle (circle-path 12 12 9)
+        :ring (append (circle-path 12 12 9) (circle-path 12 12 7 -1))
+        :search (append (circle-path 10 10 6) (circle-path 10 10 4 -1)
+                        (thick-line 14 14 20 20)))
+  "The built-in icons, as path commands in a 24-unit box.")
+
+(defun icon-names () (loop for (name nil) on *icons* by #'cddr collect name))
+
+(defun icon (name &key (size 24) colour)
+  "One of *ICONS*, as a view."
+  (let ((commands (getf *icons* name)))
+    (unless commands
+      (error "No such icon: ~S. There are ~{~S~^ ~}." name (icon-names)))
+    `(path (:commands ,commands :size ,size :view-box 24
+            :colour ,(or colour (theme :ink))))))
+
+(defun icon-button (name &key id on-press (size 24) colour background)
+  "An icon in a round tappable target."
+  `(box (:padding 8 :radius 999 :align :center :cross-align :center
+         ,@(when background (list :background background))
+         ,@(when id (list :id id))
+         ,@(when on-press (list :on-press on-press)))
+     ,(icon name :size size :colour colour)))

@@ -27,9 +27,12 @@
   lock-pixels unlock-pixels bitmap-info info-buffer
   create-bitmap bitmap-class argb-8888 draw-bitmap src-rect dst-rect rect-set rectf-set
   set-mask-filter blur-class blur-init blur-normal
+  path-class path-init path-move path-line path-quad path-cubic path-close
+  draw-path translate scale
   (strings (make-hash-table :test #'equal))
   (images (make-hash-table :test #'eq))
-  (blurs (make-hash-table :test #'eql)))
+  (blurs (make-hash-table :test #'eql))
+  (paths (make-hash-table :test #'eq)))
 
 (defun android-colour (colour)
   "A Bliss #xRRGGBBAA colour as Android's ARGB integer.
@@ -118,7 +121,26 @@ int Java expects rather than a positive bignum."
                                           "(FLandroid/graphics/BlurMaskFilter$Blur;)V")
                    :blur-normal (jni-static-object-field
                                  (jni-find-class "android/graphics/BlurMaskFilter$Blur")
-                                 "NORMAL" "Landroid/graphics/BlurMaskFilter$Blur;"))))
+                                 "NORMAL" "Landroid/graphics/BlurMaskFilter$Blur;")
+                   ;; Skia fills paths with antialiasing and its own curve
+                   ;; rasterizer, so PATH-SPANS is for backends that cannot.
+                   :path-class (jni-find-class "android/graphics/Path")
+                   :path-init (jni-method (jni-find-class "android/graphics/Path")
+                                          "<init>" "()V")
+                   :path-move (jni-method (jni-find-class "android/graphics/Path")
+                                          "moveTo" "(FF)V")
+                   :path-line (jni-method (jni-find-class "android/graphics/Path")
+                                          "lineTo" "(FF)V")
+                   :path-quad (jni-method (jni-find-class "android/graphics/Path")
+                                          "quadTo" "(FFFF)V")
+                   :path-cubic (jni-method (jni-find-class "android/graphics/Path")
+                                           "cubicTo" "(FFFFFF)V")
+                   :path-close (jni-method (jni-find-class "android/graphics/Path")
+                                           "close" "()V")
+                   :draw-path (jni-method canvas-class "drawPath"
+                                          "(Landroid/graphics/Path;Landroid/graphics/Paint;)V")
+                   :translate (jni-method canvas-class "translate" "(FF)V")
+                   :scale (jni-method canvas-class "scale" "(FF)V"))))
       ;; Antialiasing on, once. It is a Paint flag, not a per-call argument, and
       ;; it is the reason for using Skia at all.
       (jni-call-void paint (canvas-set-anti-alias canvas) (jni-args (list :int 1)))
@@ -139,6 +161,36 @@ call, at ~35us each, to say a number that did not change."
             (jni-global (jni-new (canvas-blur-class canvas) (canvas-blur-init canvas)
                                  (jni-args (list :float (max 1 radius))
                                            (list :object (canvas-blur-normal canvas))))))))
+
+(defun canvas-path (canvas commands)
+  "COMMANDS as an android.graphics.Path, built once and kept.
+
+Keyed by the command list's IDENTITY, which is what makes this worth doing: an
+icon's commands are a constant built at load time, so the same list arrives every
+frame and the ten or so JNI calls that build the Path happen once for the life of
+the process rather than sixty times a second."
+  (or (gethash commands (canvas-paths canvas))
+      (setf (gethash commands (canvas-paths canvas))
+            (let ((path (jni-global (jni-new (canvas-path-class canvas)
+                                             (canvas-path-init canvas) (jni-args)))))
+              (dolist (command commands path)
+                (ecase (first command)
+                  (:move (destructuring-bind (x y) (rest command)
+                           (jni-call-void path (canvas-path-move canvas)
+                                          (jni-args (list :float x) (list :float y)))))
+                  (:line (destructuring-bind (x y) (rest command)
+                           (jni-call-void path (canvas-path-line canvas)
+                                          (jni-args (list :float x) (list :float y)))))
+                  (:quad (destructuring-bind (cx cy x y) (rest command)
+                           (jni-call-void path (canvas-path-quad canvas)
+                                          (jni-args (list :float cx) (list :float cy)
+                                                    (list :float x) (list :float y)))))
+                  (:cubic (destructuring-bind (ax ay bx by x y) (rest command)
+                            (jni-call-void path (canvas-path-cubic canvas)
+                                           (jni-args (list :float ax) (list :float ay)
+                                                     (list :float bx) (list :float by)
+                                                     (list :float x) (list :float y)))))
+                  (:close (jni-call-void path (canvas-path-close canvas) (jni-args)))))))))
 
 (defun canvas-install-metrics (canvas)
   "Make TEXT-EXTENT report what Skia will actually draw.
@@ -265,6 +317,25 @@ drawText call, with real shaping and antialiasing."
                                     (list :object paint)))
            (jni-release (jni-call-object paint (canvas-set-mask-filter canvas)
                                          (jni-args (list :object (torcl-ffi:null-pointer)))))))
+        (:path
+         (destructuring-bind (x y w h view-box commands ink) (rest op)
+           ;; The path is built in its own 24-unit space and the CANVAS is moved
+           ;; to meet it, rather than the path being rebuilt at every position
+           ;; and size it appears in.
+           (jni-call-void paint (canvas-set-colour canvas)
+                          (jni-args (list :int (android-colour ink))))
+           (torcl-ffi:foreign-call (jni-slot +jni-call-int-method-a+) :int
+                                   '(:pointer :pointer :pointer :pointer)
+                                   (list *env* object (canvas-save canvas) (jni-args)))
+           (jni-call-void object (canvas-translate canvas)
+                          (jni-args (list :float x) (list :float y)))
+           (jni-call-void object (canvas-scale canvas)
+                          (jni-args (list :float (/ w view-box))
+                                    (list :float (/ h view-box))))
+           (jni-call-void object (canvas-draw-path canvas)
+                          (jni-args (list :object (canvas-path canvas commands))
+                                    (list :object paint)))
+           (jni-call-void object (canvas-restore canvas) (jni-args))))
         (:image
          (destructuring-bind (x y w h source) (rest op)
            (let ((bitmap (canvas-image canvas source)))

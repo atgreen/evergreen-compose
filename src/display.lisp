@@ -107,6 +107,21 @@ transparent, and a shadow under nothing is a bug rather than a feature."
       (list (list :image (rect-x frame) (rect-y frame)
                   (rect-width frame) (rect-height frame) source)))))
 
+(defmethod measure-kind ((kind (eql :path)) view constraints)
+  (declare (ignore constraints))
+  ;; Square by default, like every icon set: the drawing is described in a
+  ;; VIEW-BOX-square space and :SIZE says how big that square comes out.
+  (let ((size (view-prop view :size 24)))
+    (values size size)))
+
+(defmethod render-kind ((kind (eql :path)) view frame)
+  (let ((commands (view-prop view :commands)))
+    (when commands
+      (list (list :path (rect-x frame) (rect-y frame)
+                  (rect-width frame) (rect-height frame)
+                  (view-prop view :view-box 24) commands
+                  (colour (view-prop view :colour +black+)))))))
+
 (defgeneric render-kind (kind view frame)
   (:documentation "The display operations a VIEW of KIND contributes at FRAME,
 as a list, painted before its children.
@@ -186,6 +201,10 @@ cache. The GLES backend is six entry points because of this."
           (:fill-rect (apply #'clipped (rest op)))
           (:shadow (dolist (rect (apply #'shadow-rects (rest op)))
                      (apply #'clipped rect)))
+          (:path
+           (destructuring-bind (x y w h view-box commands ink) (rest op)
+             (dolist (span (path-spans commands x y w h view-box))
+               (apply #'clipped (append span (list ink))))))
           ;; An image is the one operation that does NOT reduce to rectangles.
           ;; A backend which only fills rectangles cannot draw one, and silently
           ;; dropping it would leave a hole nobody could account for.

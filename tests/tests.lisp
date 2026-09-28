@@ -765,12 +765,58 @@ identity, so a test that wants to compare two rectangles must compare numbers."
     (check "a divider spans its container, minus its padding"
            '((4 4 42 1)) kids)))
 
+(defun test-paths ()
+  (format t "paths~%")
+  ;; A filled square, stated as a path, to check the scanline fill itself before
+  ;; anything shaped is asked of it.
+  (let ((target (make-surface 16 16 +white+)))
+    (draw target (render (layout '(path (:size 16 :view-box 16 :colour "#ff0000"
+                                         :commands ((:move 4 4) (:line 12 4)
+                                                    (:line 12 12) (:line 4 12) (:close))))
+                                 0 0)))
+    (check "a square path fills inside" (rgb 255 0 0) (pixel-at target 8 8))
+    (check "and not outside" +white+ (pixel-at target 2 2))
+    (check "the edge is where it was asked for" (rgb 255 0 0) (pixel-at target 4 4))
+    (check "and stops" +white+ (pixel-at target 12 8)))
+  ;; The nonzero rule: a subpath wound the other way cuts a hole. This is what
+  ;; makes a ring a ring rather than a disc, and every icon set relies on it.
+  (let ((target (make-surface 24 24 +white+)))
+    (draw target (render (layout (icon :ring :size 24 :colour "#0000ff") 0 0)))
+    (check "a ring is solid on its rim" (rgb 0 0 255) (pixel-at target 12 4))
+    (check "and hollow in its middle" +white+ (pixel-at target 12 12)))
+  (let ((target (make-surface 24 24 +white+)))
+    (draw target (render (layout (icon :circle :size 24 :colour "#0000ff") 0 0)))
+    (check "while a circle is solid all through" (rgb 0 0 255) (pixel-at target 12 12)))
+  ;; A path scales into whatever box it is given: the drawing is described once,
+  ;; in a 24-unit square, and :SIZE decides how big that square comes out.
+  (let ((placed (layout (icon :plus :size 48) 0 0)))
+    (check "an icon is square at its size" '(0 0 48 48) (box-frame placed)))
+  (let ((target (make-surface 48 48 +white+)))
+    (draw target (render (layout (icon :plus :size 48 :colour "#008000") 0 0)))
+    (check "a scaled plus still crosses its centre" (rgb 0 128 0) (pixel-at target 24 24))
+    (check "and still misses its corner" +white+ (pixel-at target 4 4)))
+  ;; Every backend that fills rectangles gets paths, GLES included.
+  (let ((rects (flatten-to-rects (render (layout (icon :plus :size 24) 0 0)))))
+    (check-true "a path reduces to plain rectangles" (> (length rects) 4)))
+  ;; A quadratic is NOT a cubic with its control point written twice, and this
+  ;; is the number that says so: halfway along (0,0)->(10,10)->(20,0) the curve
+  ;; is at (10, 5), under the control point at half its height. The tempting
+  ;; wrong formula puts it at 7.5 -- close enough to look right on screen and
+  ;; not the curve that was asked for.
+  (check "a quadratic reaches half its control point's height"
+         '(10 . 5)
+         (let ((points (first (flatten-path '((:move 0 0) (:quad 10 10 20 0) (:close))))))
+           (let ((middle (nth (floor +curve-steps+ 2) points)))
+             (cons (round (car middle)) (round (cdr middle))))))
+  (check "an unknown icon says which ones there are"
+         t (handler-case (progn (icon :nonesuch) nil) (error () t))))
+
 (defun run-tests ()
   (setf *failures* 0 *checks* 0)
   (test-geometry) (test-paint) (test-font)
   (test-layout) (test-render) (test-raster)
   (test-input) (test-widgets) (test-constraints) (test-backend) (test-extension)
-  (test-utf8) (test-stacking) (test-text-field) (test-elevation) (test-stretch)
+  (test-utf8) (test-stacking) (test-text-field) (test-elevation) (test-stretch) (test-paths)
   (test-composites) (test-corners-and-clipping) (test-scroll) (test-clock) (test-virtual-list) (test-image)
   (format t "~%~D checks, ~D failures~%" *checks* *failures*)
   *failures*)

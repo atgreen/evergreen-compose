@@ -14,6 +14,7 @@
                              (:file "input")
                              (:file "text-input")
                              (:file "widgets")
+                             (:file "path")
                              (:file "display")
                              (:file "backend")
                              (:file "utf8")
