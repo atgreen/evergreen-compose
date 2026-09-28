@@ -37,7 +37,7 @@
    :*text-input* :focus-text-field :blur-text-field :pump-text-input :text-focus-id
    ;; JNI, and the Canvas backend over Android's own Skia
    :jni-start :jni-check :jni-find-class :jni-method :jni-string
-   :jni-text :jni-call-boolean :jni-call-int
+   :jni-text :jni-call-boolean :jni-call-int :jni-release :with-local-refs
    ;; the on-screen keyboard
    :show-keyboard :hide-keyboard :toggle-keyboard :keyboard-shown-p :key-character
    :attach-editor :editor-text :set-editor-text :start-text-input :accepting-text-p

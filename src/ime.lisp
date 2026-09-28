@@ -86,22 +86,26 @@ state: the user can dismiss it with the back gesture and we are not told.")
 
 (defun show-keyboard ()
   "Raise the on-screen keyboard. True if the system accepted the request."
-  (setf *keyboard-shown*
-        (jni-call-boolean (input-method-manager)
-                          (java-method +imm-class+ "showSoftInput" "(Landroid/view/View;I)Z")
-                          (jni-args (list :object (decor-view)) (list :int 0)))))
+  (with-local-refs ()
+    (setf *keyboard-shown*
+          (jni-call-boolean (input-method-manager)
+                            (java-method +imm-class+ "showSoftInput"
+                                         "(Landroid/view/View;I)Z")
+                            (jni-args (list :object (decor-view)) (list :int 0))))))
 
 (defun hide-keyboard ()
   "Put the on-screen keyboard away. True if the system accepted the request."
   (setf *keyboard-shown* nil)
-  (jni-call-boolean (input-method-manager)
-                    (java-method +imm-class+ "hideSoftInputFromWindow" "(Landroid/os/IBinder;I)Z")
-                    (jni-args (list :object (jni-call-object
-                                             (decor-view)
-                                             (java-method +view-class+ "getWindowToken"
-                                                          "()Landroid/os/IBinder;")
-                                             (jni-args)))
-                              (list :int 0))))
+  (with-local-refs ()
+    (jni-call-boolean (input-method-manager)
+                      (java-method +imm-class+ "hideSoftInputFromWindow"
+                                   "(Landroid/os/IBinder;I)Z")
+                      (jni-args (list :object (jni-call-object
+                                               (decor-view)
+                                               (java-method +view-class+ "getWindowToken"
+                                                            "()Landroid/os/IBinder;")
+                                               (jni-args)))
+                                (list :int 0)))))
 
 (defun keyboard-shown-p () *keyboard-shown*)
 
@@ -255,19 +259,18 @@ field and toString copies it; neither requests a layout, so neither trips the
 thread check. What it does race with is the IME committing an edit, and the
 worst that race can produce is a string one frame stale."
   (when *editor*
-    (let ((editable (jni-call-object *editor*
-                                     (java-method "android/widget/EditText" "getText"
-                                                  "()Landroid/text/Editable;")
-                                     (jni-args))))
-      (unwind-protect
-           (unless (torcl-ffi:null-pointer-p editable)
-             (let ((string (jni-call-object editable
-                                            (java-method "java/lang/Object" "toString"
-                                                         "()Ljava/lang/String;")
-                                            (jni-args))))
-               (unwind-protect (jni-text string)
-                 (jni-release string))))
-        (jni-release editable)))))
+    ;; Read once a frame, so its two references are two per frame: the case a
+    ;; local reference table is not built for.
+    (with-local-refs ()
+      (let ((editable (jni-call-object *editor*
+                                       (java-method "android/widget/EditText" "getText"
+                                                    "()Landroid/text/Editable;")
+                                       (jni-args))))
+        (unless (torcl-ffi:null-pointer-p editable)
+          (jni-text (jni-call-object editable
+                                     (java-method "java/lang/Object" "toString"
+                                                  "()Ljava/lang/String;")
+                                     (jni-args))))))))
 
 (defun set-editor-text (text)
   "Replace the editor's text, and put the caret after it."
@@ -291,16 +294,19 @@ Unlike SHOW-KEYBOARD, which asks on behalf of the decor view and is answered
 with a fallback connection, this asks on behalf of a real editor: isAcceptingText
 becomes true, and the IME may commit text rather than synthesising keys."
   (let ((editor (attach-editor)))
-    (setf *keyboard-shown*
-          (jni-call-boolean (input-method-manager)
-                            (java-method +imm-class+ "showSoftInput" "(Landroid/view/View;I)Z")
-                            (jni-args (list :object editor) (list :int 0))))))
+    (with-local-refs ()
+      (setf *keyboard-shown*
+            (jni-call-boolean (input-method-manager)
+                              (java-method +imm-class+ "showSoftInput"
+                                           "(Landroid/view/View;I)Z")
+                              (jni-args (list :object editor) (list :int 0)))))))
 
 (defun accepting-text-p ()
   "Whether the IME has a real InputConnection: the question this file exists for."
-  (jni-call-boolean (input-method-manager)
-                    (java-method +imm-class+ "isAcceptingText" "()Z")
-                    (jni-args)))
+  (with-local-refs ()
+    (jni-call-boolean (input-method-manager)
+                      (java-method +imm-class+ "isAcceptingText" "()Z")
+                      (jni-args))))
 
 ;;; Loading this file IS the installation: it is the Android half of
 ;;; src/text-input.lisp, and there is nothing else for it to be.

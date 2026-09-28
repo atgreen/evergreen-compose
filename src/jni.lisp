@@ -36,6 +36,8 @@
 (defconstant +jni-exception-occurred+ 15)
 (defconstant +jni-exception-clear+ 17)
 (defconstant +jni-get-version+ 4)
+(defconstant +jni-push-local-frame+ 19)
+(defconstant +jni-pop-local-frame+ 20)
 (defconstant +jni-get-string-utf-length+ 168)
 (defconstant +jni-get-string-utf-chars+ 169)
 (defconstant +jni-release-string-utf-chars+ 170)
@@ -222,3 +224,46 @@ overflows the table and aborts the process."
   (unless (torcl-ffi:null-pointer-p local)
     (torcl-ffi:foreign-call (jni-slot +jni-delete-local-ref+) :void
                             '(:pointer :pointer) (list *env* local))))
+
+;;; ── Local references ──────────────────────────────────────────────────
+;;;
+;;; Every JNI call that returns an OBJECT returns a local reference, and a local
+;;; reference lives until the native frame that made it returns. This thread was
+;;; attached with AttachCurrentThread and is sitting in a Lisp loop: it has no
+;;; native frame and will never return to one, so nothing ever pops its table.
+;;; A call made once at startup is then a handful of words leaked for the life of
+;;; the process, which is nothing -- and a call made EVERY FRAME fills the table
+;;; and aborts:
+;;;
+;;;   JNI ERROR (app bug): local reference table overflow (max=512)
+;;;
+;;; JNI's own answer is a frame you open and close yourself, which is what this
+;;; is. WITH-LOCAL-REFS around a per-frame call is the rule; JNI-RELEASE is for
+;;; releasing one reference by hand where a frame would be heavier than the job.
+
+(defun jni-push-frame (capacity)
+  (torcl-ffi:foreign-call (jni-slot +jni-push-local-frame+) :int
+                          '(:pointer :int) (list *env* capacity)))
+
+(defun jni-pop-frame (result)
+  "Close the frame, promoting RESULT out of it when RESULT is a reference.
+
+A body that answered with a Lisp value -- a string, a boolean, a number -- has
+nothing to promote, and passing it to JNI would be a type error rather than a
+no-op, so it is handed straight back."
+  (let ((reference (and result (torcl-ffi:pointerp result))))
+    (let ((promoted (torcl-ffi:foreign-call
+                     (jni-slot +jni-pop-local-frame+) :pointer
+                     '(:pointer :pointer)
+                     (list *env* (if reference result (torcl-ffi:null-pointer))))))
+      (if reference promoted result))))
+
+(defmacro with-local-refs ((&optional (capacity 16)) &body body)
+  "Release every local reference BODY makes, keeping only what it returns."
+  (let ((value (gensym "VALUE")))
+    `(progn
+       (jni-push-frame ,capacity)
+       (let ((,value nil))
+         (unwind-protect (setf ,value (progn ,@body))
+           (setf ,value (jni-pop-frame ,value)))
+         ,value))))
