@@ -16,6 +16,7 @@
    ;; backends
    :surface :make-surface :surface-width :surface-height :surface-pixels
    :draw :clear :pixel-at :write-ppm :ascii-art
+   :native-pixel :colour-from-native
    ;; GLES backend (Android)
    :gles-init :gles-surface-size :gles-draw)
   (:documentation
