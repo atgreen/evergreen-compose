@@ -479,11 +479,45 @@
       (check-true "a half-open switch is between its ends"
                   (< (knob-x off) (knob-x half) (knob-x on))))))
 
+;;; ── virtualised lists ─────────────────────────────────────────────────
+(defun test-virtual-list ()
+  (format t "virtual list~%")
+  ;; The window is what is on screen, plus overscan either side.
+  (multiple-value-bind (first last) (visible-range 0 100 10 1000 :overscan 0)
+    (check "from the top, the first screenful" '(0 10) (list first last)))
+  (multiple-value-bind (first last) (visible-range 500 100 10 1000 :overscan 0)
+    (check "scrolled, the window moves" '(50 60) (list first last)))
+  (multiple-value-bind (first last) (visible-range 0 100 10 1000 :overscan 2)
+    (check "overscan cannot go below zero" 0 first)
+    (check "and extends past the screen" 12 last))
+  (multiple-value-bind (first last) (visible-range 9990 100 10 1000)
+    (declare (ignore first))
+    (check "and cannot run past the end" 1000 last))
+  ;; The point of all of it: a huge list builds only a handful of rows.
+  (let ((built '()))
+    (let ((view (virtual-list 100000 (lambda (i) (push i built)
+                                       `(box (:width 10 :height 40 :fill "#ff0000")))
+                              :id :l :offset 0 :viewport 200 :item-height 40)))
+      (check-true "a 100000-row list builds a handful" (< (length built) 20))
+      (check-true "and they are the ones on screen" (every (lambda (i) (< i 20)) built))
+      ;; Content height stays honest, so scrolling clamps against the real extent.
+      (let ((placed (layout view 0 0 (constraints 0 100 0 200))))
+        (check "content is the whole list, not the built part" (* 100000 40)
+               (laid-out-content placed))
+        (check "so it scrolls to the very end" (- (* 100000 40) 200)
+               (scroll-by placed 0 99999999)))))
+  ;; Scrolling builds a different window.
+  (let ((built '()))
+    (virtual-list 1000 (lambda (i) (push i built) `(box (:width 10 :height 40)))
+                  :id :l :offset 4000 :viewport 200 :item-height 40)
+    (check-true "a scrolled list builds the scrolled rows"
+                (and (every (lambda (i) (< 90 i 115)) built) built))))
+
 (defun run-tests ()
   (setf *failures* 0 *checks* 0)
   (test-geometry) (test-paint) (test-font)
   (test-layout) (test-render) (test-raster)
   (test-input) (test-widgets) (test-constraints) (test-backend) (test-extension)
-  (test-composites) (test-corners-and-clipping) (test-scroll) (test-clock)
+  (test-composites) (test-corners-and-clipping) (test-scroll) (test-clock) (test-virtual-list)
   (format t "~%~D checks, ~D failures~%" *checks* *failures*)
   *failures*)

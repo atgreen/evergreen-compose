@@ -136,3 +136,38 @@ clamp against the content it actually has."
             ,@(when height (list :height height))
             ,@(when width (list :width width)))
      ,@children))
+
+(defun visible-range (offset viewport item-height count &key (overscan 2))
+  "The half-open range of item indices worth building, as first and last.
+
+Only the rows on screen are built, plus OVERSCAN either side so a fast scroll
+does not show a gap before the next frame catches up. This is the whole reason a
+list is not just a loop: laying out a thousand rows to show ten costs a thousand
+rows, and at the measured cost of a node that is over a second a frame."
+  (let* ((first (max 0 (- (floor offset item-height) overscan)))
+         (last (min count (+ (ceiling (+ offset viewport) item-height) overscan))))
+    (values first (max first last))))
+
+(defun virtual-list (count item &key id (offset 0) viewport (item-height 40)
+                                     width on-drag (overscan 2))
+  "A scrolling list of COUNT rows, of which only the visible ones are built.
+
+ITEM is called with an index and returns a view. It is called only for rows in
+view, so COUNT may be enormous.
+
+The rows off screen are replaced by two SPACERS, one above and one below, sized
+to exactly the space those rows would have taken. That keeps the content height
+honest -- so SCROLL-BY clamps against the real extent and the scroll position
+means what it says -- without building anything. It also means every row must be
+exactly ITEM-HEIGHT tall, which is why this wraps each one to that height rather
+than trusting it: a row that disagrees would make the spacers lie and the list
+would drift as it scrolled."
+  (multiple-value-bind (first last)
+      (visible-range offset viewport item-height count :overscan overscan)
+    (scroll
+     (append
+      (list (spacer :height (* first item-height)))
+      (loop for index from first below last
+            collect `(column (:height ,item-height) ,(funcall item index)))
+      (list (spacer :height (* (- count last) item-height))))
+     :id id :offset offset :height viewport :width width :on-drag on-drag)))

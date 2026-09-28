@@ -30,7 +30,7 @@
    :laid-out-content
    ;; widgets
    :*theme* :theme :theme-value :button :toggle :spacer :text
-   :vstack :hstack :progress :switch :labelled :scroll
+   :vstack :hstack :progress :switch :labelled :scroll :virtual-list :visible-range
    ;; JNI, and the Canvas backend over Android's own Skia
    :jni-start :jni-check :jni-find-class :jni-method :jni-string
    ;; the Android host: window, touch mapping and the frame loop
