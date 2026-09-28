@@ -10,7 +10,6 @@
 (defparameter *last-x* 0)
 (defparameter *last-y* 0)
 (defparameter *frames* 0)
-(defparameter *last-display* nil)
 
 (defun ui (width height)
   ;; WIDTH and HEIGHT are logical, not physical: the root is pinned to the whole
@@ -38,7 +37,16 @@
       ;; than leaving a seam at the right and bottom edges.
       (let* ((scale (max 1 (floor width 120)))
              (logical-width (ceiling width scale))
-             (logical-height (ceiling height scale)))
+             (logical-height (ceiling height scale))
+             ;; The skip-if-unchanged cache is scoped to THIS surface, and must
+             ;; be, because it is really a statement about what is in the
+             ;; surface's buffers. Backgrounding the app destroys the native
+             ;; window and ANDROID-MAIN is re-entered with a new EGL surface
+             ;; whose buffers are undefined; a cache that outlived the old
+             ;; surface then reports "unchanged" against a black screen and
+             ;; nothing is ever drawn again. Binding it here ties its lifetime
+             ;; to the thing it describes.
+             (last-display nil))
         (android:log (format nil "Bliss: surface ~Dx~D scale ~D" width height scale))
         (loop while (android:running-p)
               do (if (android:paused-p)
@@ -68,10 +76,10 @@
                        ;; behind frames nobody needed.
                        (let ((display (bliss:render
                                        (bliss:layout (ui logical-width logical-height) 0 0))))
-                         (if (equal display *last-display*)
+                         (if (equal display last-display)
                              (sleep 0.008)
                              (let ((start (get-internal-real-time)))
-                               (setf *last-display* display)
+                               (setf last-display display)
                                (bliss:gles-draw display width height scale)
                                (torcl-egl:swap)
                                (incf *frames*)
