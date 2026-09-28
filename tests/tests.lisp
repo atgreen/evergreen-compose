@@ -206,13 +206,80 @@
               (not (equal (render (layout (button "A" :id :a) 0 0))
                           (render (layout (button "A" :id :a :pressed t) 0 0)))))
   ;; A spacer occupies room and paints nothing.
+;; A grown button fills its row and keeps the label centred -- the thing
+  ;; intrinsic sizing could not do, and the reason constraints exist.
+  (let* ((tree `(row (:gap 0) ,(button "Go" :id :go :grow 1)))
+         (placed (layout tree 0 0 (constraints 0 200 0 100)))
+         (btn (first (laid-out-children placed)))
+         (text (first (laid-out-children btn))))
+    (check "a grown button fills the row" 200 (rect-width (laid-out-frame btn)))
+    (check-true "and its label is centred in it"
+                (let ((slack (- (rect-width (laid-out-frame btn))
+                                (rect-width (laid-out-frame text)))))
+                  (= (- (rect-x (laid-out-frame text)) (rect-x (laid-out-frame btn)))
+                     (floor slack 2)))))
   (check "a spacer takes space" '(10 4) (multiple-value-list (measure (spacer :width 10 :height 4))))
   (check "and emits no drawing" 0 (length (render (layout (spacer :width 10 :height 4) 0 0)))))
+
+;;; ── constraints ───────────────────────────────────────────────────────
+(defun test-constraints ()
+  (format t "constraints~%")
+  ;; The two demands intrinsic sizing cannot express. First: fill what is left.
+  (let* ((tree '(row (:gap 0)
+                 (box (:width 30 :height 10))
+                 (box (:height 10 :grow 1))))
+         (placed (layout tree 0 0 (constraints 0 100 0 100)))
+         (kids (laid-out-children placed)))
+    (check "a grower takes the remaining width" 70
+           (rect-width (laid-out-frame (second kids))))
+    (check "and starts where the fixed child ended" 30
+           (rect-x (laid-out-frame (second kids))))
+    (check "the row fills the room it was offered" 100
+           (rect-width (laid-out-frame placed))))
+  ;; Two growers split in proportion, not equally.
+  (let* ((tree '(row (:gap 0)
+                 (box (:height 10 :grow 1))
+                 (box (:height 10 :grow 3))))
+         (kids (laid-out-children (layout tree 0 0 (constraints 0 80 0 80)))))
+    (check "growers split by their factor" '(20 60)
+           (list (rect-width (laid-out-frame (first kids)))
+                 (rect-width (laid-out-frame (second kids))))))
+  ;; Unbounded: there is no remaining space to claim, so a grower is intrinsic.
+  (let* ((tree '(row () (box (:width 25 :height 10 :grow 1))))
+         (placed (layout tree 0 0)))
+    (check "a grower without a bound is intrinsic" 25
+           (rect-width (laid-out-frame placed))))
+  ;; Second demand: centre me in my parent.
+  (let* ((tree '(column (:align :center :height 100)
+                 (box (:width 10 :height 20))))
+         (kid (first (laid-out-children (layout tree 0 0 (constraints 0 100 100 100))))))
+    (check "align centres on the main axis" 40 (rect-y (laid-out-frame kid))))
+  (let* ((tree '(column (:cross-align :center :width 100)
+                 (box (:width 20 :height 10))))
+         (kid (first (laid-out-children (layout tree 0 0 (constraints 100 100 0 100))))))
+    (check "cross-align centres on the cross axis" 40 (rect-x (laid-out-frame kid))))
+  (let* ((tree '(column (:align :end :height 100)
+                 (box (:width 10 :height 20))))
+         (kid (first (laid-out-children (layout tree 0 0 (constraints 0 100 100 100))))))
+    (check "align :end pushes to the far edge" 80 (rect-y (laid-out-frame kid))))
+;; A container that knows its own size offers it downward, even when nothing
+  ;; above it said anything. This is the root case: a screen-sized column laid
+  ;; out under unbounded constraints must still let its children fill.
+  (let* ((tree '(column (:width 200 :height 50)
+                 (row (:gap 0) (box (:height 10 :grow 1)))))
+         (inner (first (laid-out-children (first (laid-out-children (layout tree 0 0)))))))
+    (check "explicit size reaches the children" 200
+           (rect-width (laid-out-frame inner))))
+  ;; Padding still applies, and the grower gets what is inside it.
+  (let* ((tree '(row (:padding 10) (box (:height 5 :grow 1))))
+         (kid (first (laid-out-children (layout tree 0 0 (constraints 0 100 0 100))))))
+    (check "a grower fills inside the padding" 80 (rect-width (laid-out-frame kid)))
+    (check "and starts after it" 10 (rect-x (laid-out-frame kid)))))
 
 (defun run-tests ()
   (setf *failures* 0 *checks* 0)
   (test-geometry) (test-paint) (test-font)
   (test-layout) (test-render) (test-raster)
-  (test-input) (test-widgets)
+  (test-input) (test-widgets) (test-constraints)
   (format t "~%~D checks, ~D failures~%" *checks* *failures*)
   *failures*)

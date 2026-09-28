@@ -25,20 +25,24 @@
 
 (defun theme (key) (colour (getf *theme* key "#ff00ff")))
 
-(defun button (label &key id on-press pressed (size 3) disabled)
-  "A rectangle that reports touches, with its label centred by padding.
+(defun button (label &key id on-press pressed (size 3) disabled grow)
+  "A rectangle that reports touches, with its label centred.
+
+Centred by CONSTRAINTS, not by padding the string with spaces: :ALIGN and
+:CROSS-ALIGN place the label in whatever room the button ends up with, so it
+stays centred when GROW makes the button wider than its text.
 
 PRESSED and DISABLED are told, not remembered -- the caller holds that state and
 passes it in, which is what lets the whole interface stay a function of a model."
-  (multiple-value-bind (text-width text-height) (text-extent label size)
-    (declare (ignore text-width))
-    `(column (:padding ,(max 6 (round size 2))
+  (let ((pad (max 6 (round size 2))))
+    `(column (:padding ,pad
               :background ,(cond (disabled (theme :disabled))
                                  (pressed (theme :accent-pressed))
                                  (t (theme :accent)))
               :id ,id
-              ,@(unless disabled (list :on-press on-press))
-              :height ,(+ text-height (* 2 (max 6 (round size 2)))))
+              :align :center :cross-align :center
+              ,@(when grow (list :grow grow))
+              ,@(unless disabled (list :on-press on-press)))
        (label (:text ,label :size ,size
                :colour ,(if disabled (theme :muted) (theme :ink)))))))
 
@@ -50,7 +54,7 @@ in the tree and nothing at all in the display list."
 (defun text (string &key (size 2) (colour nil))
   `(label (:text ,string :size ,size :colour ,(or colour (theme :ink)))))
 
-(defun toggle (label &key id on-press on (size 3))
+(defun toggle (label &key id on-press on (size 3) grow)
   "A button whose accent shows its state. ON is told, like PRESSED."
   (button (format nil "~A: ~:[off~;on~]" label on)
-          :id id :on-press on-press :pressed on :size size))
+          :id id :on-press on-press :pressed on :size size :grow grow))

@@ -81,10 +81,24 @@
 (defun glyph-pixel-p (glyph column row)
   (logbitp column (aref glyph row)))
 
-(defun text-extent (text scale)
-  "The pixel size of TEXT at SCALE. Returns width and height.
+(defun bitmap-text-extent (text scale)
+  "The pixel size of TEXT at SCALE in the built-in 5x7 font.
 The trailing letter-space of the last glyph is not counted, so a measured string
 is flush against its own ink on both sides and centring it looks centred."
   (let ((n (length text)))
     (values (if (zerop n) 0 (* scale (- (* n +glyph-advance+) 1)))
             (* scale +glyph-height+))))
+
+(defparameter *measure-text* #'bitmap-text-extent
+  "How TEXT-EXTENT measures a string: a function of (text scale) returning
+width and height.
+
+Indirect because measurement must come from whatever will DRAW the text. Layout
+centres a label by the width it was told; if the backend then draws with a
+different font, the label is centred for a font nobody is using. That was a real
+bug -- boxes centred by 5x7 metrics, text drawn by Skia in Roboto -- and it is
+invisible in the software backend, where the two are the same font by accident.")
+
+(defun text-extent (text scale)
+  "The pixel size of TEXT at SCALE, according to the installed metrics."
+  (funcall *measure-text* text scale))

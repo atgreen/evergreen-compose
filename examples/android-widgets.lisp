@@ -20,17 +20,21 @@
      ,(bliss:text "buttons, hit testing, dispatch" :size 2 :colour (bliss:theme :muted))
      ,(bliss:spacer :height 6)
      ,(bliss:text (format nil "Count: ~D" *count*) :size 6 :colour (bliss:theme :ink))
-     (row (:gap 12)
-       ,(bliss:button "  -  " :id :minus :size 4 :pressed (eq *pressed* :minus)
+     ;; Both buttons GROW, so they split the row evenly and stay even when the
+     ;; labels differ in width -- and each label is centred in whatever width it
+     ;; lands with. Neither is expressible without constraints.
+     (row (:gap 12 :width ,(- width 40))
+       ,(bliss:button "Less" :id :minus :size 4 :grow 1 :pressed (eq *pressed* :minus)
                       :on-press (lambda (node) (declare (ignore node)) (decf *count*)))
-       ,(bliss:button "  +  " :id :plus :size 4 :pressed (eq *pressed* :plus)
+       ,(bliss:button "More" :id :plus :size 4 :grow 2 :pressed (eq *pressed* :plus)
                       :on-press (lambda (node) (declare (ignore node)) (incf *count*))))
      ,(bliss:spacer :height 4)
-     ,(bliss:toggle "Loud" :id :loud :on *loud* :size 3
-                    :on-press (lambda (node) (declare (ignore node)) (setf *loud* (not *loud*))))
-     ,(bliss:button "Reset" :id :reset :size 3 :pressed (eq *pressed* :reset)
-                    :disabled (zerop *count*)
-                    :on-press (lambda (node) (declare (ignore node)) (setf *count* 0)))
+     (row (:gap 12 :width ,(- width 40))
+       ,(bliss:toggle "Loud" :id :loud :on *loud* :size 3 :grow 1
+                      :on-press (lambda (node) (declare (ignore node)) (setf *loud* (not *loud*))))
+       ,(bliss:button "Reset" :id :reset :size 3 :grow 1 :pressed (eq *pressed* :reset)
+                      :disabled (zerop *count*)
+                      :on-press (lambda (node) (declare (ignore node)) (setf *count* 0))))
      ,(bliss:spacer :height 6)
      ,(bliss:text (format nil "last: ~A" *last*) :size 2 :colour (bliss:theme :muted))))
 

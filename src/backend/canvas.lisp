@@ -83,7 +83,51 @@ int Java expects rather than a positive bignum."
       ;; it is the reason for using Skia at all.
       (jni-call-void paint (canvas-set-anti-alias canvas) (jni-args (list :int 1)))
       (jni-check)
+      ;; Layout must measure with the font that will be drawn, so this is part
+      ;; of opening a canvas rather than something a caller can forget.
+      (canvas-install-metrics canvas)
       canvas)))
+
+(defun canvas-install-metrics (canvas)
+  "Make TEXT-EXTENT report what Skia will actually draw.
+
+Without this, layout centres and sizes every label using the built-in 5x7 font
+while Canvas draws Roboto, so boxes are laid out for a font that never appears.
+Measurements are cached by text and size: each one is a JNI call at ~35us, and a
+label measured during layout is measured again on the next frame otherwise."
+  (let ((cache (make-hash-table :test #'equal))
+        (paint (canvas-paint canvas))
+        (measure (jni-method (jni-find-class "android/graphics/Paint")
+                             "measureText" "(Ljava/lang/String;)F"))
+        (descent (jni-method (jni-find-class "android/graphics/Paint")
+                             "descent" "()F")))
+    (setf *measure-text*
+          (lambda (text scale)
+            (let ((key (cons text scale)))
+              (let ((hit (gethash key cache)))
+                (if hit
+                    (values (car hit) (cdr hit))
+                    (let ((size (* scale +glyph-height+)))
+                      (jni-call-void paint (canvas-set-text-size canvas)
+                                     (jni-args (list :float size)))
+                      (let* ((width (torcl-ffi:foreign-call
+                                     (jni-slot +jni-call-float-method-a+) :float
+                                     '(:pointer :pointer :pointer :pointer)
+                                     (list *env* paint measure
+                                           (jni-args (list :object (canvas-string canvas text))))))
+                             (rise (torcl-ffi:foreign-call
+                                    (jni-slot +jni-call-float-method-a+) :float
+                                    '(:pointer :pointer :pointer :pointer)
+                                    (list *env* paint (canvas-ascent canvas) (jni-args))))
+                             (fall (torcl-ffi:foreign-call
+                                    (jni-slot +jni-call-float-method-a+) :float
+                                    '(:pointer :pointer :pointer :pointer)
+                                    (list *env* paint descent (jni-args))))
+                             ;; Layout works in whole pixels, and a box that
+                             ;; rounds DOWN clips the glyph it was measured for.
+                             (extent (cons (ceiling width) (ceiling (- fall rise)))))
+                        (setf (gethash key cache) extent)
+                        (values (car extent) (cdr extent)))))))))))
 
 (defun canvas-string (canvas text)
   "TEXT as a cached jstring. Built once per distinct string: at ~27us each,

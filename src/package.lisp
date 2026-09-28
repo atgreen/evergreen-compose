@@ -11,6 +11,7 @@
    :view-kind :view-props :view-children :view-prop
    ;; layout
    :measure :layout :laid-out :laid-out-view :laid-out-frame :laid-out-children
+   :constraints :unbounded :tight
    ;; display list
    :render :flatten-to-rects :colour
    ;; backends
@@ -26,6 +27,7 @@
    ;; JNI, and the Canvas backend over Android's own Skia
    :jni-start :jni-check :jni-find-class :jni-method :jni-string
    :canvas-open :canvas-draw :canvas-pixels :canvas-release-pixels
+   :*measure-text* :bitmap-text-extent :text-extent
    :canvas-width :canvas-height)
   (:documentation
    "A view tree is Lisp data. LAYOUT turns it into placed frames, RENDER turns
