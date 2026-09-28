@@ -183,7 +183,11 @@
     (check "a miss dispatches nothing" nil (dispatch placed 900 900 :on-press)))
   ;; Physical touches must be converted before they mean anything.
   (check "scales a touch to logical space" '(10 20)
-         (multiple-value-list (scale-point 30 60 3))))
+         (multiple-value-list (scale-point 30 60 3)))
+  ;; The axes scale independently: one ratio for both is wrong whenever the
+  ;; buffer's aspect ratio is not the display's, which is the usual case.
+  (check "and each axis by its own ratio" '(10 20)
+         (multiple-value-list (scale-point 30 80 3 4))))
 
 ;;; ── widgets ──────────────────────────────────────────────────────────
 (defun test-widgets ()

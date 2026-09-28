@@ -39,11 +39,16 @@ widgets by reading its own props."
       (funcall (node-prop hit event) hit)
       hit)))
 
-(defun scale-point (x y scale)
+(defun scale-point (x y x-scale &optional (y-scale x-scale))
   "Physical touch coordinates as logical ones.
 
 Touches arrive in device pixels and the view tree is laid out in logical ones,
-so every dispatch needs this. Getting it wrong puts the hit in the right place
-on a phone and the wrong place on a tablet, which is the kind of bug that only
-shows up on someone else's device."
-  (values (floor x scale) (floor y scale)))
+so every dispatch needs this.
+
+The axes scale SEPARATELY, and defaulting them to the same value is a trap worth
+naming: a 384x747 buffer stretched over a 1080x2243 display is 2.81 across and
+3.00 down. One ratio for both is wrong by 7% vertically, which large buttons
+absorb and small controls do not -- a switch stops responding while everything
+around it still works, which reads as a broken widget rather than broken
+arithmetic."
+  (values (floor x x-scale) (floor y y-scale)))

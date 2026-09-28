@@ -53,12 +53,16 @@
          (call (lambda (name ret types args)
                  (torcl-ffi:foreign-call
                   (torcl-ffi:foreign-symbol-pointer name lib) ret types args)))
-         ;; Ask the window its real size BEFORE changing the buffer geometry,
-         ;; because afterwards it reports the buffer and not the display -- and
-         ;; the ratio between them is what turns a touch into a hit.
-         (physical-width (funcall call "ANativeWindow_getWidth" :int '(:pointer) (list window)))
          (buffer (torcl-ffi:foreign-alloc 48))
          (memcpy (torcl-ffi:foreign-symbol-pointer "memcpy"))
+         ;; The window reports its NATIVE orientation -- 2243x1080 on this
+         ;; device, landscape, which the compositor rotates for a portrait
+         ;; display. Touches arrive in PORTRAIT display coordinates, so the
+         ;; display size is the same pair the other way round.
+         (native-a (funcall call "ANativeWindow_getWidth" :int '(:pointer) (list window)))
+         (native-b (funcall call "ANativeWindow_getHeight" :int '(:pointer) (list window)))
+         (display-width (min native-a native-b))
+         (display-height (max native-a native-b))
          (height 747)
          (width (progn
                   (funcall call "ANativeWindow_setBuffersGeometry" :int '(:pointer :int :int :int)
@@ -69,15 +73,17 @@
                     (funcall call "ANativeWindow_unlockAndPost" :int '(:pointer) (list window))
                     stride)))
          (canvas (bliss:canvas-open width height))
-         ;; Touches arrive in device pixels; the tree is laid out in logical
-         ;; ones. A ratio, not an integer: 1080/384 is 2.8125.
-         (ratio (/ physical-width width))
+         ;; Per axis, because the buffer's aspect ratio is not the display's:
+         ;; 1080/384 across and 2243/747 down. Sharing one ratio was wrong by 7%
+         ;; vertically, which large buttons absorbed and the switch did not.
+         (x-ratio (/ display-width width))
+         (y-ratio (/ display-height height))
          (placed nil)
          (last-display nil))
     (funcall call "ANativeWindow_setBuffersGeometry" :int '(:pointer :int :int :int)
              (list window width height 1))
-    (android:log (format nil "widgets: ~Dx~D logical, ~D physical, ratio ~A"
-                         width height physical-width ratio))
+    (android:log (format nil "widgets: ~Dx~D logical on ~Dx~D display, ratios ~A and ~A"
+                         width height display-width display-height x-ratio y-ratio))
     (loop while (android:running-p)
           do (if (android:paused-p)
                  (sleep 0.02)
@@ -86,7 +92,7 @@
                          while (first event)
                          do (destructuring-bind (action x y) event
                               (multiple-value-bind (lx ly)
-                                  (bliss:scale-point (truncate x) (truncate y) ratio)
+                                  (bliss:scale-point (truncate x) (truncate y) x-ratio y-ratio)
                                 (when placed
                                   (case action
                                     ;; Press ARMS a widget; it does not fire it.
