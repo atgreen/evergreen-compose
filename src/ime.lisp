@@ -131,3 +131,173 @@ not yet know which device an event came from."
     ;; character is not final until the next one arrives.
     (when (and (plusp character) (<= character #x10FFFF))
       (code-char character))))
+
+;;;; Running JNI on the Android main thread.
+;;;;
+;;;; Everything above works from the worker thread because none of it touches a
+;;;; View. Attaching one does, and Android will not have it:
+;;;;
+;;;;   CalledFromWrongThreadException: Only the original thread that created a
+;;;;   view hierarchy can touch its views. Expected: main Calling: Thread-2
+;;;;
+;;;; The runtime's ANDROID:CALL-ON-MAIN posts a C call down a pipe registered on
+;;;; the main thread's own ALooper and waits for it. It knows nothing about JNI:
+;;;; what goes through it is a function pointer out of the table this file is
+;;;; already walking, which is why a new call shape needs nothing from the
+;;;; runtime.
+
+(defvar *main-env* nil "The MAIN thread's JNIEnv, which is not this thread's.")
+(defvar *main-table* nil)
+
+(defun main-env ()
+  (or *main-env*
+      (let ((env (word-at (android:activity) 2))) ; ANativeActivity.env
+        (when (torcl-ffi:null-pointer-p env)
+          (error "This Activity has no main-thread JNIEnv"))
+        (setf *main-table* (word-at env))
+        (setf *main-env* env))))
+
+(defun %main-call (index arguments &key (result :pointer) promote)
+  "Call JNI function INDEX on the main thread, with that thread's env first.
+
+PROMOTE asks for the result as a GLOBAL reference, and it is not an option so
+much as a correction. The main thread reaches the gate from inside
+MessageQueue.nativePollOnce, which is a JNI native method, so every local
+reference made there belongs to that frame and is popped the moment the looper
+returns to Java. Promoting one on a later call is not an error that can be
+handled -- CheckJNI aborts the process:
+
+  JNI DETECTED ERROR IN APPLICATION: jobject is an invalid local reference
+  (popped reference at index 11 in a table of size 7) in call to NewGlobalRef
+
+which is how this was found. So it happens inside the same visit, which is what
+the runtime's :PROMOTE and :RELEASE are for."
+  (let ((env (main-env)))
+    (android:call-on-main
+     (word-at *main-table* index) (cons env arguments)
+     :result result
+     :promote (and promote (word-at *main-table* +jni-new-global-ref+))
+     :release (and promote (word-at *main-table* +jni-delete-local-ref+)))))
+
+(defun main-check ()
+  "Signal if a Java exception is pending ON THE MAIN THREAD, and clear it.
+
+A pending exception is thread state rather than frame state, so it does survive
+between visits -- and must not, because CheckJNI aborts on the next call made
+while one is pending. Every main-thread call therefore ends here."
+  (let ((thrown (%main-call +jni-exception-occurred+ '() :promote t)))
+    (unless (torcl-ffi:null-pointer-p thrown)
+      (%main-call +jni-exception-clear+ '() :result :void)
+      (error "Java on the main thread: ~A"
+             (or (jni-text (jni-call-object
+                            thrown
+                            (java-method "java/lang/Object" "toString"
+                                         "()Ljava/lang/String;")
+                            (jni-args)))
+                 "a throwable that would not describe itself")))))
+
+(defun main-call (index arguments &optional (result :pointer))
+  (prog1 (%main-call index arguments :result result) (main-check)))
+
+(defun main-object (index arguments)
+  "A jobject result from a main-thread call, as a GLOBAL reference."
+  (prog1 (%main-call index arguments :promote t) (main-check)))
+
+(defvar *editor* nil
+  "The attached android.widget.EditText, as a global reference, or NIL.")
+
+(defun attach-editor ()
+  "Attach a real EditText to the window and focus it. Idempotent.
+
+This is what turns the keyboard from something that merely appears into
+something with an InputConnection behind it. Without a focused editor the IME
+falls back to sending key events, which works for typing Latin letters on the
+stock keyboard and for nothing else -- not gesture typing, not autocorrect, not
+a suggestion bar, not emoji, and not any input method for a language that is not
+composed key by key.
+
+The EditText is Android's own, one pixel square, and never drawn by us: it is
+here to hold the input connection, not to be seen. Nothing defines a Java class,
+so there is still no DEX in the APK."
+  (or *editor*
+      (let* ((activity (java-activity))
+             (editor (main-object
+                      +jni-new-object-a+
+                      (list (java-class "android/widget/EditText")
+                            (java-method "android/widget/EditText" "<init>"
+                                         "(Landroid/content/Context;)V")
+                            (jni-args (list :object activity)))))
+             (params (main-object
+                      +jni-new-object-a+
+                      (list (java-class "android/view/ViewGroup$LayoutParams")
+                            (java-method "android/view/ViewGroup$LayoutParams" "<init>" "(II)V")
+                            (jni-args (list :int 1) (list :int 1))))))
+        (main-call +jni-call-void-method-a+
+                   (list activity
+                         (java-method +activity-class+ "addContentView"
+                                      "(Landroid/view/View;Landroid/view/ViewGroup$LayoutParams;)V")
+                         (jni-args (list :object editor) (list :object params)))
+                   :void)
+        (main-call +jni-call-void-method-a+
+                   (list editor (java-method +view-class+ "setFocusableInTouchMode" "(Z)V")
+                         (jni-args (list :int 1)))
+                   :void)
+        (main-call +jni-call-boolean-method-a+
+                   (list editor (java-method +view-class+ "requestFocus" "()Z") (jni-args))
+                   :int)
+        (setf *editor* editor))))
+
+(defun editor-text ()
+  "The editor's current text, or NIL when there is no editor.
+
+Read from THIS thread rather than the main one. getText returns the Editable
+field and toString copies it; neither requests a layout, so neither trips the
+thread check. What it does race with is the IME committing an edit, and the
+worst that race can produce is a string one frame stale."
+  (when *editor*
+    (let ((editable (jni-call-object *editor*
+                                     (java-method "android/widget/EditText" "getText"
+                                                  "()Landroid/text/Editable;")
+                                     (jni-args))))
+      (unwind-protect
+           (unless (torcl-ffi:null-pointer-p editable)
+             (let ((string (jni-call-object editable
+                                            (java-method "java/lang/Object" "toString"
+                                                         "()Ljava/lang/String;")
+                                            (jni-args))))
+               (unwind-protect (jni-text string)
+                 (jni-release string))))
+        (jni-release editable)))))
+
+(defun set-editor-text (text)
+  "Replace the editor's text, and put the caret after it."
+  (when *editor*
+    (main-call +jni-call-void-method-a+
+               (list *editor*
+                     (java-method "android/widget/EditText" "setText"
+                                  "(Ljava/lang/CharSequence;)V")
+                     (jni-args (list :object (jni-string text))))
+               :void)
+    (main-call +jni-call-void-method-a+
+               (list *editor*
+                     (java-method "android/widget/EditText" "setSelection" "(I)V")
+                     (jni-args (list :int (length text))))
+               :void)))
+
+(defun start-text-input ()
+  "Attach the editor if need be, then raise the keyboard against it.
+
+Unlike SHOW-KEYBOARD, which asks on behalf of the decor view and is answered
+with a fallback connection, this asks on behalf of a real editor: isAcceptingText
+becomes true, and the IME may commit text rather than synthesising keys."
+  (let ((editor (attach-editor)))
+    (setf *keyboard-shown*
+          (jni-call-boolean (input-method-manager)
+                            (java-method +imm-class+ "showSoftInput" "(Landroid/view/View;I)Z")
+                            (jni-args (list :object editor) (list :int 0))))))
+
+(defun accepting-text-p ()
+  "Whether the IME has a real InputConnection: the question this file exists for."
+  (jni-call-boolean (input-method-manager)
+                    (java-method +imm-class+ "isAcceptingText" "()Z")
+                    (jni-args)))

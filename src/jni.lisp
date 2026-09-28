@@ -172,9 +172,17 @@ valid until the native call that produced it returns."
 (defun jni-string (text)
   "TEXT as a jstring GLOBAL reference. Callers cache these: at ~27us each,
 rebuilding a label's string every frame costs more than drawing it."
-  (android:with-c-string (bytes text)
-    (jni-global (torcl-ffi:foreign-call (jni-slot +jni-new-string-utf+) :pointer
-                                        '(:pointer :pointer) (list *env* bytes)))))
+  (let* ((bytes (%modified-utf8 text))
+         (buffer (torcl-ffi:foreign-alloc (1+ (length bytes)))))
+    (unwind-protect
+         (progn
+           (loop for byte across bytes
+                 for index from 0
+                 do (torcl-ffi:mem-set byte buffer :uchar index))
+           (torcl-ffi:mem-set 0 buffer :uchar (length bytes))
+           (jni-global (torcl-ffi:foreign-call (jni-slot +jni-new-string-utf+) :pointer
+                                               '(:pointer :pointer) (list *env* buffer))))
+      (torcl-ffi:foreign-free buffer))))
 
 (defun jni-call-boolean (object method args)
   (plusp (torcl-ffi:foreign-call (jni-slot +jni-call-boolean-method-a+) :int
@@ -189,19 +197,28 @@ rebuilding a label's string every frame costs more than drawing it."
 (defun jni-text (string)
   "The jstring STRING as a Lisp string, or NIL for a Java null.
 
-The bytes are modified UTF-8; this decodes the ASCII range and leaves anything
-else as its raw byte, which is enough for class names and diagnostics and is not
-enough for user text. Reading real text will want the UTF-16 accessors."
+The bytes are MODIFIED UTF-8, which is ordinary UTF-8 across the basic plane and
+CESU-8 above it: a character outside that plane arrives as a surrogate PAIR,
+three bytes each, rather than as one four-byte sequence. Both are decoded here
+because text a person typed contains both -- an emoji is exactly the second
+case, and reading it as two lone surrogates would produce two characters that
+are not the one they typed."
   (unless (torcl-ffi:null-pointer-p string)
     (let ((bytes (torcl-ffi:foreign-call (jni-slot +jni-get-string-utf-chars+) :pointer
                                          '(:pointer :pointer :pointer)
                                          (list *env* string (torcl-ffi:null-pointer)))))
-      (unwind-protect
-           (with-output-to-string (out)
-             (loop for i from 0
-                   for byte = (torcl-ffi:mem-ref bytes :uchar i)
-                   until (zerop byte)
-                   do (write-char (code-char byte) out)))
+      (unwind-protect (decode-modified-utf8 bytes)
         (torcl-ffi:foreign-call (jni-slot +jni-release-string-utf-chars+) :void
                                 '(:pointer :pointer :pointer)
                                 (list *env* string bytes))))))
+
+(defun jni-release (local)
+  "Release a local reference.
+
+A thread attached with AttachCurrentThread never returns to a native frame, so
+nothing ever pops its local reference table. A per-call result that is not
+released therefore accumulates for the life of the thread, and a per-FRAME one
+overflows the table and aborts the process."
+  (unless (torcl-ffi:null-pointer-p local)
+    (torcl-ffi:foreign-call (jni-slot +jni-delete-local-ref+) :void
+                            '(:pointer :pointer) (list *env* local))))

@@ -36,6 +36,7 @@
    :jni-text :jni-call-boolean :jni-call-int
    ;; the on-screen keyboard
    :show-keyboard :hide-keyboard :toggle-keyboard :keyboard-shown-p :key-character
+   :attach-editor :editor-text :set-editor-text :start-text-input :accepting-text-p
    ;; the Android host: window, touch mapping and the frame loop
    :*pressed* :*dirty* :invalidate :android-host :open-android-host :run-android-app
    :host-width :host-height :host-placed :host-backend

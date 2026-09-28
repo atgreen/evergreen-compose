@@ -15,5 +15,6 @@
                              (:file "widgets")
                              (:file "display")
                              (:file "backend")
+                             (:file "utf8")
                              (:module "backend"
                               :components ((:file "software")))))))

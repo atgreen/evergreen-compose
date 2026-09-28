@@ -544,11 +544,42 @@
       (check "an image is clipped" +white+ (pixel-at target 5 5))
       (check "inside the clip it draws" (rgb 255 0 0) (pixel-at target 0 0)))))
 
+(defun test-utf8 ()
+  ;; Java's modified UTF-8, which text typed on a phone exercises the moment
+  ;; anyone reaches for an emoji.
+  (flet ((bytes (text) (coerce (%modified-utf8 text) 'list))
+         (round-trip (text)
+           (let* ((encoded (%modified-utf8 text))
+                  (buffer (torcl-ffi:foreign-alloc (1+ (length encoded)))))
+             (unwind-protect
+                  (progn (loop for byte across encoded
+                               for index from 0
+                               do (torcl-ffi:mem-set byte buffer :uchar index))
+                         (torcl-ffi:mem-set 0 buffer :uchar (length encoded))
+                         (decode-modified-utf8 buffer))
+               (torcl-ffi:foreign-free buffer)))))
+    (check "ASCII is one byte each" '(104 105) (bytes "hi"))
+    (check "Latin-1 is two" '(#xc3 #xa9) (bytes (string (code-char #xe9))))
+    (check "the basic plane is three" '(#xe2 #x82 #xac) (bytes (string (code-char #x20ac))))
+    ;; U+1F602: four bytes in real UTF-8, six here, because Java writes the
+    ;; surrogate PAIR rather than the code point.
+    (check "above it, a surrogate pair of three bytes each"
+           '(#xed #xa0 #xbd #xed #xb8 #x82) (bytes (string (code-char #x1f602))))
+    (check "and NUL is never a zero byte" '(#xc0 #x80) (bytes (string (code-char 0))))
+    (check "ASCII survives the round trip" "hello" (round-trip "hello"))
+    (check "and so does an emoji, as ONE character"
+           1 (length (round-trip (string (code-char #x1f602)))))
+    (check "which is the character it started as"
+           #x1f602 (char-code (char (round-trip (string (code-char #x1f602))) 0)))
+    (check "mixed text keeps its length"
+           5 (length (round-trip (format nil "a~Ab~Ac" (code-char #x1f602) (code-char #x20ac)))))))
+
 (defun run-tests ()
   (setf *failures* 0 *checks* 0)
   (test-geometry) (test-paint) (test-font)
   (test-layout) (test-render) (test-raster)
   (test-input) (test-widgets) (test-constraints) (test-backend) (test-extension)
+  (test-utf8)
   (test-composites) (test-corners-and-clipping) (test-scroll) (test-clock) (test-virtual-list) (test-image)
   (format t "~%~D checks, ~D failures~%" *checks* *failures*)
   *failures*)
