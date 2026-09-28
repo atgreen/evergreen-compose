@@ -20,10 +20,17 @@
 
 (defparameter *theme*
   '(:surface "#101820" :ink "#ffffff" :muted "#a0b0c0"
-    :accent "#4080ff" :accent-pressed "#2a5fcf" :disabled "#30404f")
-  "Colours widgets read, as a plist so an application can rebind or replace it.")
+    :accent "#4080ff" :accent-pressed "#2a5fcf" :disabled "#30404f"
+    :radius 10)
+  "What widgets read for their appearance, as a plist so an application can
+rebind or replace it. Non-colour entries live here too: a corner radius is a
+theme decision, not a per-call one.")
 
 (defun theme (key) (colour (getf *theme* key "#ff00ff")))
+
+(defun theme-value (key &optional default)
+  "A non-colour theme entry, returned as-is."
+  (getf *theme* key default))
 
 (defun button (label &key id on-press pressed (size 3) disabled grow)
   "A rectangle that reports touches, with its label centred.
@@ -39,6 +46,7 @@ passes it in, which is what lets the whole interface stay a function of a model.
               :background ,(cond (disabled (theme :disabled))
                                  (pressed (theme :accent-pressed))
                                  (t (theme :accent)))
+              :radius ,(theme-value :radius 0)
               :id ,id
               :align :center :cross-align :center
               ,@(when grow (list :grow grow))
@@ -86,7 +94,8 @@ fraction of it -- which needs no new primitive, because the fraction is computed
 when the tree is BUILT. A value clamped here rather than at the caller means a
 bad model cannot draw outside its own track."
   (let ((fraction (max 0 (min 1 value))))
-    `(row (:width ,width :height ,height
+    `(row (:width ,width :height ,height :radius ,(floor height 2)
+           :clip t
            :background ,(or background (theme :disabled)))
        (box (:width ,(round (* width fraction)) :height ,height
              :fill ,(or colour (theme :accent)))))))
@@ -100,9 +109,10 @@ rather than two trees."
   (let ((knob (- height 8)))
     `(row (:width ,width :height ,height :cross-align :center :padding 4
            :background ,(if on (theme :accent) (theme :disabled))
+           :radius ,(floor height 2)
            :id ,id ,@(when on-change (list :on-press on-change)))
        ,@(when on (list (spacer :grow 1)))
-       (box (:width ,knob :height ,knob :fill ,(theme :ink)))
+       (box (:width ,knob :height ,knob :fill ,(theme :ink) :radius ,(floor knob 2)))
        ,@(unless on (list (spacer :grow 1))))))
 
 (defun labelled (text-string child &key (gap 6) (size 2))

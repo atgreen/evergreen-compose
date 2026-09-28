@@ -21,7 +21,7 @@
 
 (defstruct canvas
   bitmap object paint
-  draw-rect draw-text draw-colour
+  draw-rect draw-round-rect draw-text draw-colour save restore clip-rect
   set-colour set-text-size set-anti-alias ascent
   width height
   lock-pixels unlock-pixels bitmap-info info-buffer
@@ -65,6 +65,14 @@ int Java expects rather than a positive bignum."
                    :bitmap bitmap :object canvas :paint paint :width width :height height
                    :draw-rect (jni-method canvas-class "drawRect"
                                           "(FFFFLandroid/graphics/Paint;)V")
+                   ;; Skia has real arcs and a real clip stack, so the backend
+                   ;; uses them rather than the span decomposition that exists
+                   ;; for backends which can only fill rectangles.
+                   :draw-round-rect (jni-method canvas-class "drawRoundRect"
+                                                "(FFFFFFLandroid/graphics/Paint;)V")
+                   :save (jni-method canvas-class "save" "()I")
+                   :restore (jni-method canvas-class "restore" "()V")
+                   :clip-rect (jni-method canvas-class "clipRect" "(FFFF)Z")
                    :draw-text (jni-method canvas-class "drawText"
                                           "(Ljava/lang/String;FFLandroid/graphics/Paint;)V")
                    :draw-colour (jni-method canvas-class "drawColor" "(I)V")
@@ -145,6 +153,29 @@ drawText call, with real shaping and antialiasing."
         (object (canvas-object canvas)))
     (dolist (op display-list)
       (ecase (first op)
+        ;; SAVE/RESTORE is Skia's own clip stack, so nothing has to be
+        ;; intersected by hand and text is clipped as correctly as anything else.
+        (:clip-push
+         (destructuring-bind (x y w h) (rest op)
+           (torcl-ffi:foreign-call (jni-slot +jni-call-int-method-a+) :int
+                                   '(:pointer :pointer :pointer :pointer)
+                                   (list *env* object (canvas-save canvas) (jni-args)))
+           (torcl-ffi:foreign-call (jni-slot +jni-call-boolean-method-a+) :int
+                                   '(:pointer :pointer :pointer :pointer)
+                                   (list *env* object (canvas-clip-rect canvas)
+                                         (jni-args (list :float x) (list :float y)
+                                                   (list :float (+ x w))
+                                                   (list :float (+ y h)))))))
+        (:clip-pop (jni-call-void object (canvas-restore canvas) (jni-args)))
+        (:fill-round-rect
+         (destructuring-bind (x y w h radius colour) (rest op)
+           (jni-call-void paint (canvas-set-colour canvas)
+                          (jni-args (list :int (android-colour colour))))
+           (jni-call-void object (canvas-draw-round-rect canvas)
+                          (jni-args (list :float x) (list :float y)
+                                    (list :float (+ x w)) (list :float (+ y h))
+                                    (list :float radius) (list :float radius)
+                                    (list :object paint)))))
         (:fill-rect
          (destructuring-bind (x y w h colour) (rest op)
            (jni-call-void paint (canvas-set-colour canvas)

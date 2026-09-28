@@ -125,21 +125,50 @@ longer allocates, this is what took the rasterizer out of the allocator."
                                    (glyph-pixel-p glyph column row))))
                      (cond ((and lit (null start)) (setf start column))
                            ((and (not lit) start)
-                            (fill-rect surface
-                                       (+ pen (* start scale))
-                                       (+ y (* row scale))
-                                       (* (- column start) scale)
-                                       scale colour)
+                            (fill-clipped surface
+                                          (+ pen (* start scale))
+                                          (+ y (* row scale))
+                                          (* (- column start) scale)
+                                          scale colour *glyph-clip*)
                             (setf start nil)))))))))
 
 (defun draw (surface display-list)
-  "Execute a display list onto SURFACE."
-  (dolist (op display-list surface)
-    (ecase (first op)
-      (:fill-rect (destructuring-bind (x y w h colour) (rest op)
-                    (fill-rect surface x y w h colour)))
-      (:glyphs (destructuring-bind (x y text scale colour) (rest op)
-                 (draw-glyphs surface x y text scale colour))))))
+  "Execute a display list onto SURFACE.
+
+Rounded rectangles and clipping arrive already resolved: FLATTEN-TO-RECTS turns
+corners into spans and intersects everything with the clip stack, so this
+backend still only has to fill axis-aligned rectangles. Text is the exception --
+it is drawn directly, because expanding a glyph to one rectangle per lit pixel
+and then filling each is what made this slow in the first place."
+  (let ((clips (list nil)))
+    (dolist (op display-list surface)
+      (ecase (first op)
+        (:clip-push (destructuring-bind (x y w h) (rest op)
+                      (let ((new (rect x y w h)))
+                        (push (if (first clips) (rect-intersect new (first clips)) new)
+                              clips))))
+        (:clip-pop (pop clips))
+        (:fill-rect (destructuring-bind (x y w h colour) (rest op)
+                      (fill-clipped surface x y w h colour (first clips))))
+        (:fill-round-rect
+         (destructuring-bind (x y w h radius colour) (rest op)
+           (dolist (span (round-rect-spans x y w h radius))
+             (destructuring-bind (sx sy sw sh) span
+               (fill-clipped surface sx sy sw sh colour (first clips))))))
+        (:glyphs (destructuring-bind (x y text scale colour) (rest op)
+                   (let ((*glyph-clip* (first clips)))
+                     (draw-glyphs surface x y text scale colour))))))))
+
+(defvar *glyph-clip* nil "Clip applied to glyph fills, or NIL for none.")
+
+(defun fill-clipped (surface x y width height colour clip)
+  "FILL-RECT, first intersected with CLIP when there is one."
+  (if (null clip)
+      (fill-rect surface x y width height colour)
+      (let ((area (rect-intersect (rect x y width height) clip)))
+        (when area
+          (fill-rect surface (rect-x area) (rect-y area)
+                     (rect-width area) (rect-height area) colour)))))
 
 ;;; ── Getting a frame out ───────────────────────────────────────────────
 

@@ -359,11 +359,52 @@
          (box (second (laid-out-children (layout tree 0 0)))))
     (check "a growing spacer pushes to the end" 80 (rect-x (laid-out-frame box)))))
 
+;;; ── rounded corners and clipping ──────────────────────────────────────
+(defun test-corners-and-clipping ()
+  (format t "corners and clipping~%")
+  ;; A rounded rect decomposes to one span per row, inset at the corners.
+  (let ((spans (round-rect-spans 0 0 20 20 5)))
+    (check "one span per row" 20 (length spans))
+    ;; The middle rows are full width; the first is inset on both sides.
+    (check "the middle is full width" 20 (third (nth 10 spans)))
+    (check-true "the first row is inset" (< (third (first spans)) 20))
+    (check-true "and symmetric" (= (third (first spans)) (third (car (last spans)))))
+    ;; A radius larger than the box is clamped, not wrapped around.
+    (check-true "an oversized radius is clamped"
+                (every (lambda (s) (<= 0 (third s) 20)) (round-rect-spans 0 0 20 20 99))))
+  ;; A :RADIUS makes the fill a rounded op, and the backends that can only fill
+  ;; rectangles still get it, through FLATTEN.
+  (let ((ops (render (layout '(box (:width 20 :height 20 :fill "#ff0000" :radius 5)) 0 0))))
+    (check "a radius emits a rounded fill" :fill-round-rect (first (first ops)))
+    (check-true "which flattens to spans" (> (length (flatten-to-rects ops)) 1)))
+  ;; Clipping confines children to the container's frame.
+  (let* ((tree '(column (:clip t :width 10 :height 10)
+                 (box (:width 100 :height 100 :fill "#00ff00"))))
+         (ops (render (layout tree 0 0)))
+         (rects (flatten-to-rects ops)))
+    (check "clip ops bracket the children" '(:clip-push :clip-pop)
+           (list (first (first ops)) (first (car (last ops)))))
+    (check "the child is clipped to the container" '(10 10)
+           (list (third (first rects)) (fourth (first rects)))))
+  ;; And a clipped surface really does not paint outside.
+  (let ((surface (make-surface 20 20 +white+)))
+    (draw surface (render (layout '(column (:clip t :width 5 :height 5)
+                                    (box (:width 20 :height 20 :fill "#000000")))
+                                  0 0)))
+    (check "inside the clip is painted" +black+ (pixel-at surface 2 2))
+    (check "outside it is not" +white+ (pixel-at surface 10 10)))
+  ;; Text is clipped too, which is the case a hand-rolled clip usually misses.
+  (let ((surface (make-surface 40 20 +white+)))
+    (draw surface (render (layout '(column (:clip t :width 6 :height 20)
+                                    (label (:text "HELLO" :size 1 :colour "#000000")))
+                                  0 0)))
+    (check "glyphs outside the clip are dropped" +white+ (pixel-at surface 20 3))))
+
 (defun run-tests ()
   (setf *failures* 0 *checks* 0)
   (test-geometry) (test-paint) (test-font)
   (test-layout) (test-render) (test-raster)
   (test-input) (test-widgets) (test-constraints) (test-backend) (test-extension)
-  (test-composites)
+  (test-composites) (test-corners-and-clipping)
   (format t "~%~D checks, ~D failures~%" *checks* *failures*)
   *failures*)

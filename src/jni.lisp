@@ -21,6 +21,7 @@
 (defconstant +jni-get-method-id+ 33)
 (defconstant +jni-call-object-method-a+ 36)
 (defconstant +jni-call-int-method-a+ 51)
+(defconstant +jni-call-boolean-method-a+ 39)
 (defconstant +jni-call-void-method-a+ 63)
 (defconstant +jni-call-float-method-a+ 57)
 (defconstant +jni-new-object-a+ 30)

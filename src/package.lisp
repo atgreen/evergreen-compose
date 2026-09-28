@@ -13,7 +13,7 @@
    :measure :layout :laid-out :laid-out-view :laid-out-frame :laid-out-children
    :constraints :unbounded :tight
    ;; display list
-   :render :flatten-to-rects :colour :measure-kind :render-kind
+   :render :flatten-to-rects :colour :measure-kind :render-kind :round-rect-spans
    ;; backends
    :surface :make-surface :surface-width :surface-height :surface-pixels
    :draw :clear :pixel-at :write-ppm :ascii-art
@@ -26,7 +26,7 @@
    ;; input and dispatch
    :hit-test :dispatch :node-prop :scale-point
    ;; widgets
-   :*theme* :theme :button :toggle :spacer :text
+   :*theme* :theme :theme-value :button :toggle :spacer :text
    :vstack :hstack :progress :switch :labelled
    ;; JNI, and the Canvas backend over Android's own Skia
    :jni-start :jni-check :jni-find-class :jni-method :jni-string

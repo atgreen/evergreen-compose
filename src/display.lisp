@@ -12,6 +12,40 @@
 ;;; replayed -- which is how the tests below compare renders without a GPU, and
 ;;; how the same frame can go to a software surface here and to GLES on a phone.
 
+(defun round-rect-spans (x y width height radius)
+  "A rounded rectangle as one horizontal span per row: (x y width height).
+
+Decomposing to spans rather than teaching every backend about arcs means a
+backend that can fill an axis-aligned rectangle gets rounded corners for free,
+exactly as FLATTEN-TO-RECTS gets text for free. A backend that HAS arcs -- Canvas
+does -- should use them instead and skip this.
+
+The inset per row is the horizontal distance from the corner circle's centre to
+its edge at that height, which is the circle equation and nothing cleverer."
+  (let ((r (min radius (floor width 2) (floor height 2)))
+        (spans '()))
+    (dotimes (row height (nreverse spans))
+      (let* ((from-top (- r row 1/2))
+             (from-bottom (- r (- height row 1) 1/2))
+             (depth (max (if (plusp from-top) from-top 0)
+                         (if (plusp from-bottom) from-bottom 0)))
+             (inset (if (plusp depth)
+                        (- r (isqrt (max 0 (floor (- (* r r) (* depth depth))))))
+                        0)))
+        (when (< (* 2 inset) width)
+          (push (list (+ x inset) (+ y row) (- width (* 2 inset)) 1) spans))))))
+
+(defun %box-ops (view frame)
+  "The fill for a box or a container background, rounded when asked."
+  (let ((fill (or (view-prop view :fill) (view-prop view :background)))
+        (radius (view-prop view :radius 0)))
+    (when fill
+      (list (if (plusp radius)
+                (list :fill-round-rect (rect-x frame) (rect-y frame)
+                      (rect-width frame) (rect-height frame) radius (colour fill))
+                (list :fill-rect (rect-x frame) (rect-y frame)
+                      (rect-width frame) (rect-height frame) (colour fill)))))))
+
 (defgeneric render-kind (kind view frame)
   (:documentation "The display operations a VIEW of KIND contributes at FRAME,
 as a list, painted before its children.
@@ -24,25 +58,15 @@ which is what makes a frame comparable between renders.")
     (declare (ignore view frame))
     (error "No RENDER-KIND method for ~S." kind)))
 
-(defmethod render-kind ((kind (eql :box)) view frame)
-  (let ((fill (view-prop view :fill)))
-    (when fill
-      (list (list :fill-rect (rect-x frame) (rect-y frame)
-                  (rect-width frame) (rect-height frame) (colour fill))))))
+(defmethod render-kind ((kind (eql :box)) view frame) (%box-ops view frame))
 
 (defmethod render-kind ((kind (eql :label)) view frame)
   (list (list :glyphs (rect-x frame) (rect-y frame)
               (view-prop view :text "") (view-prop view :size 1)
               (colour (view-prop view :colour +black+)))))
 
-(defun %background-ops (view frame)
-  (let ((background (view-prop view :background)))
-    (when background
-      (list (list :fill-rect (rect-x frame) (rect-y frame)
-                  (rect-width frame) (rect-height frame) (colour background))))))
-
-(defmethod render-kind ((kind (eql :row)) view frame) (%background-ops view frame))
-(defmethod render-kind ((kind (eql :column)) view frame) (%background-ops view frame))
+(defmethod render-kind ((kind (eql :row)) view frame) (%box-ops view frame))
+(defmethod render-kind ((kind (eql :column)) view frame) (%box-ops view frame))
 
 (defun render (laid-out-tree)
   "The display list for a laid-out tree, as a list of operations."
@@ -53,9 +77,16 @@ which is what makes a frame comparable between renders.")
                       (frame (laid-out-frame node))
                       (kind (view-kind view)))
                  (mapc #'emit (render-kind kind view frame))
+                 ;; A container with :CLIP confines its children to its own
+                 ;; frame. Emitted around the children rather than by the node
+                 ;; itself, because that is the extent being clipped TO.
+                 (when (view-prop view :clip)
+                   (emit (list :clip-push (rect-x frame) (rect-y frame)
+                               (rect-width frame) (rect-height frame))))
                  ;; Children after the parent's own background, so a container
                  ;; paints beneath what it contains.
-                 (mapc #'walk (laid-out-children node)))))
+                 (mapc #'walk (laid-out-children node))
+                 (when (view-prop view :clip) (emit (list :clip-pop))))))
       (walk laid-out-tree))
     (nreverse ops)))
 
@@ -66,20 +97,41 @@ Glyphs expand into their inked pixels. That sounds wasteful and is exactly what
 makes a backend cheap to write: a device that can fill an axis-aligned rectangle
 can run the whole framework, with no texture upload, no shader and no glyph
 cache. The GLES backend is six entry points because of this."
-  (let ((rects '()))
-    (dolist (op display-list (nreverse rects))
-      (ecase (first op)
-        (:fill-rect (push (rest op) rects))
-        (:glyphs
-         (destructuring-bind (x y text scale colour) (rest op)
-           (loop for character across text
-                 for pen = x then (+ pen (* scale +glyph-advance+))
-                 for glyph = (glyph character)
-                 when glyph
-                   do (dotimes (row +glyph-height+)
-                        (dotimes (column +glyph-width+)
-                          (when (glyph-pixel-p glyph column row)
-                            (push (list (+ pen (* column scale))
-                                        (+ y (* row scale))
-                                        scale scale colour)
-                                  rects)))))))))))
+  (let ((rects '())
+        (clips (list nil)))
+    (flet ((clipped (x y w h colour)
+             ;; Intersect with the innermost clip before emitting, so a backend
+             ;; that only fills rectangles needs to know nothing about clipping.
+             (let ((area (if (first clips)
+                             (rect-intersect (rect x y w h) (first clips))
+                             (rect x y w h))))
+               (when area
+                 (push (list (rect-x area) (rect-y area)
+                             (rect-width area) (rect-height area) colour)
+                       rects)))))
+      (dolist (op display-list (nreverse rects))
+        (ecase (first op)
+          (:clip-push (destructuring-bind (x y w h) (rest op)
+                        (let ((new (rect x y w h)))
+                          (push (if (first clips)
+                                    (rect-intersect new (first clips))
+                                    new)
+                                clips))))
+          (:clip-pop (pop clips))
+          (:fill-round-rect
+           (destructuring-bind (x y w h radius colour) (rest op)
+             (dolist (span (round-rect-spans x y w h radius))
+               (apply #'clipped (append span (list colour))))))
+          (:fill-rect (apply #'clipped (rest op)))
+          (:glyphs
+           (destructuring-bind (x y text scale colour) (rest op)
+             (loop for character across text
+                   for pen = x then (+ pen (* scale +glyph-advance+))
+                   for glyph = (glyph character)
+                   when glyph
+                     do (dotimes (row +glyph-height+)
+                          (dotimes (column +glyph-width+)
+                            (when (glyph-pixel-p glyph column row)
+                              (clipped (+ pen (* column scale))
+                                       (+ y (* row scale))
+                                       scale scale colour))))))))))))

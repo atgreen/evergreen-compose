@@ -36,6 +36,15 @@
                       :disabled (zerop *count*)
                       :on-press (lambda (node) (declare (ignore node)) (setf *count* 0))))
      ,(bliss:spacer :height 6)
+     ,(bliss:labelled "Progress" (bliss:progress (/ (mod *count* 10) 10.0)
+                                                 :width (- width 40) :height 16))
+     ,(bliss:spacer :height 4)
+     (row (:gap 12 :cross-align :center)
+       ,(bliss:switch :id :sw :on *loud*
+                      :on-change (lambda (node) (declare (ignore node))
+                                   (setf *loud* (not *loud*))))
+       ,(bliss:text "a real switch" :size 2 :colour (bliss:theme :muted)))
+     ,(bliss:spacer :height 4)
      ,(bliss:text (format nil "last: ~A" *last*) :size 2 :colour (bliss:theme :muted))))
 
 (defun android-main (window)
