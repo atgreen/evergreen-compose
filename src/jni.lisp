@@ -36,6 +36,9 @@
 (defconstant +jni-exception-occurred+ 15)
 (defconstant +jni-exception-clear+ 17)
 (defconstant +jni-get-version+ 4)
+(defconstant +jni-get-string-utf-length+ 168)
+(defconstant +jni-get-string-utf-chars+ 169)
+(defconstant +jni-release-string-utf-chars+ 170)
 
 (defvar *env* nil "This thread's JNIEnv, or NIL before JNI-START.")
 (defvar *env-table* nil "The JNIEnv function table, read once.")
@@ -79,8 +82,14 @@ the wrong line."
   (let ((thrown (torcl-ffi:foreign-call (jni-slot +jni-exception-occurred+) :pointer
                                         '(:pointer) (list *env*))))
     (unless (torcl-ffi:null-pointer-p thrown)
+      ;; Clear FIRST: with an exception pending, the toString call below would
+      ;; itself fail, and the report would be "an exception was thrown" again.
       (torcl-ffi:foreign-call (jni-slot +jni-exception-clear+) :void '(:pointer) (list *env*))
-      (error "A Java exception was thrown"))))
+      (error "Java: ~A"
+             (let* ((class (jni-find-class "java/lang/Object"))
+                    (to-string (jni-method class "toString" "()Ljava/lang/String;")))
+               (or (jni-text (jni-call-object thrown to-string (jni-args)))
+                   "a throwable that would not describe itself"))))))
 
 (defun jni-global (local)
   "Promote a local reference to a global one, so it survives past this call.
@@ -166,3 +175,33 @@ rebuilding a label's string every frame costs more than drawing it."
   (android:with-c-string (bytes text)
     (jni-global (torcl-ffi:foreign-call (jni-slot +jni-new-string-utf+) :pointer
                                         '(:pointer :pointer) (list *env* bytes)))))
+
+(defun jni-call-boolean (object method args)
+  (plusp (torcl-ffi:foreign-call (jni-slot +jni-call-boolean-method-a+) :int
+                                 '(:pointer :pointer :pointer :pointer)
+                                 (list *env* object method args))))
+
+(defun jni-call-int (object method args)
+  (torcl-ffi:foreign-call (jni-slot +jni-call-int-method-a+) :int
+                          '(:pointer :pointer :pointer :pointer)
+                          (list *env* object method args)))
+
+(defun jni-text (string)
+  "The jstring STRING as a Lisp string, or NIL for a Java null.
+
+The bytes are modified UTF-8; this decodes the ASCII range and leaves anything
+else as its raw byte, which is enough for class names and diagnostics and is not
+enough for user text. Reading real text will want the UTF-16 accessors."
+  (unless (torcl-ffi:null-pointer-p string)
+    (let ((bytes (torcl-ffi:foreign-call (jni-slot +jni-get-string-utf-chars+) :pointer
+                                         '(:pointer :pointer :pointer)
+                                         (list *env* string (torcl-ffi:null-pointer)))))
+      (unwind-protect
+           (with-output-to-string (out)
+             (loop for i from 0
+                   for byte = (torcl-ffi:mem-ref bytes :uchar i)
+                   until (zerop byte)
+                   do (write-char (code-char byte) out)))
+        (torcl-ffi:foreign-call (jni-slot +jni-release-string-utf-chars+) :void
+                                '(:pointer :pointer :pointer)
+                                (list *env* string bytes))))))
