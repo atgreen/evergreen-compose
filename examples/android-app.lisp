@@ -48,6 +48,19 @@
              ;; to the thing it describes.
              (last-display nil))
         (android:log (format nil "Bliss: surface ~Dx~D scale ~D" width height scale))
+        ;; One-shot: what does a single foreign call cost here? glGetError takes
+        ;; no arguments and returns an int, so this times the call path itself
+        ;; with the context already current -- separating "the FFI is slow" from
+        ;; "the GPU is slow", which the issue/swap split has already narrowed to
+        ;; the issuing side.
+        (let ((probe (torcl-ffi:foreign-symbol-pointer "glGetError" torcl-egl::*gles*))
+              (n 5000))
+          (let ((start (get-internal-real-time)))
+            (dotimes (i n) (torcl-ffi:foreign-call probe :int (quote ()) (quote ())))
+            (let ((ms (round (* 1000 (- (get-internal-real-time) start))
+                             internal-time-units-per-second)))
+              (android:log (format nil "ffi probe: ~D glGetError in ~Dms = ~,1F us/call"
+                                   n ms (/ (* 1000.0 ms) n))))))
         (loop while (android:running-p)
               do (if (android:paused-p)
                      (sleep 0.02)
@@ -78,13 +91,22 @@
                                        (bliss:layout (ui logical-width logical-height) 0 0))))
                          (if (equal display last-display)
                              (sleep 0.008)
-                             (let ((start (get-internal-real-time)))
-                               (setf last-display display)
-                               (bliss:gles-draw display width height scale)
-                               (torcl-egl:swap)
+                             ;; Split ISSUING the GL calls from SWAPPING. They
+                             ;; fail differently: time in the first is FFI and
+                             ;; driver call overhead, time in the second is this
+                             ;; thread blocked waiting for the GPU to catch up.
+                             ;; Only the second explains a cost that grows when
+                             ;; frames come close together.
+                             (let* ((t0 (get-internal-real-time))
+                                    (ignore1 (setf last-display display))
+                                    (ignore2 (bliss:gles-draw display width height scale))
+                                    (t1 (get-internal-real-time))
+                                    (ignore3 (torcl-egl:swap))
+                                    (t2 (get-internal-real-time)))
+                               (declare (ignore ignore1 ignore2 ignore3))
                                (incf *frames*)
                                (android:log
-                                (format nil "redraw ~D: ~Dms ~D rects" *frames*
-                                        (round (* 1000 (- (get-internal-real-time) start))
-                                               internal-time-units-per-second)
+                                (format nil "redraw ~D: issue ~Dms swap ~Dms ~D rects" *frames*
+                                        (round (* 1000 (- t1 t0)) internal-time-units-per-second)
+                                        (round (* 1000 (- t2 t1)) internal-time-units-per-second)
                                         (length (bliss:flatten-to-rects display))))))))))))))
