@@ -446,11 +446,44 @@
                                     0 0 (constraints 0 20 0 20))))
       (check "a fully scrolled child leaves nothing" +white+ (pixel-at surface 10 10)))))
 
+;;; ── the frame clock ───────────────────────────────────────────────────
+(defun test-clock ()
+  (format t "clock~%")
+  (let ((*frame-delta* 1/60) (*animating* nil))
+    ;; APPROACH moves toward the target and declares itself unsettled.
+    (let ((next (approach 0.0 1.0)))
+      (check-true "approach moves toward the target" (< 0 next 1))
+      (check-true "and asks for another frame" *animating*))
+    ;; Within epsilon it SNAPS and stops asking, which is what ends an
+    ;; animation -- one that never quite arrives keeps the screen dirty forever.
+    (setf *animating* nil)
+    (check "approach snaps at the end" 1.0 (approach 0.9999 1.0))
+    (check "and stops asking" nil *animating*)
+    ;; Framerate independence: a longer frame covers more ground.
+    (let ((slow (let ((*frame-delta* 1/10)) (approach 0.0 1.0)))
+          (fast (let ((*frame-delta* 1/120)) (approach 0.0 1.0))))
+      (check-true "a longer frame moves further" (> slow fast))))
+  (check "ease is bounded below" 0 (ease -5))
+  (check "and above" 1 (ease 5))
+  (check "and symmetric at the middle" 1/2 (ease 1/2))
+  ;; Colour interpolation, which is what makes a control move as one thing.
+  (check "mix at zero is the first colour" (rgb 0 0 0) (mix-colours +black+ +white+ 0))
+  (check "mix at one is the second" (rgb 255 255 255) (mix-colours +black+ +white+ 1))
+  (check "and halfway is halfway" 128 (colour-red (mix-colours +black+ +white+ 1/2)))
+  ;; A switch at a fraction really places its knob partway.
+  (let ((half (layout (switch :id :s :position 1/2) 0 0))
+        (off (layout (switch :id :s :position 0) 0 0))
+        (on (layout (switch :id :s :position 1) 0 0)))
+    (flet ((knob-x (placed)
+             (rect-x (laid-out-frame (second (laid-out-children placed))))))
+      (check-true "a half-open switch is between its ends"
+                  (< (knob-x off) (knob-x half) (knob-x on))))))
+
 (defun run-tests ()
   (setf *failures* 0 *checks* 0)
   (test-geometry) (test-paint) (test-font)
   (test-layout) (test-render) (test-raster)
   (test-input) (test-widgets) (test-constraints) (test-backend) (test-extension)
-  (test-composites) (test-corners-and-clipping) (test-scroll)
+  (test-composites) (test-corners-and-clipping) (test-scroll) (test-clock)
   (format t "~%~D checks, ~D failures~%" *checks* *failures*)
   *failures*)

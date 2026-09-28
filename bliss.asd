@@ -10,6 +10,7 @@
                              (:file "font")
                              (:file "view")
                              (:file "layout")
+                             (:file "clock")
                              (:file "input")
                              (:file "widgets")
                              (:file "display")

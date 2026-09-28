@@ -30,6 +30,8 @@ told whether it is pressed without remembering anything itself.")
    (x-ratio :initarg :x-ratio :reader host-x-ratio)
    (y-ratio :initarg :y-ratio :reader host-y-ratio)
    (placed :initform nil :accessor host-placed)
+   (started :initform nil :accessor host-started)
+   (last-frame :initform nil :accessor host-last-frame)
    (drag-node :initform nil :accessor host-drag-node)
    (drag-origin :initform nil :accessor host-drag-origin)
    (drag-last :initform nil :accessor host-drag-last)
@@ -207,7 +209,28 @@ something should cost nothing when they are not doing anything."
                     (when (host-pump-touches host) (invalidate))
                     (cond (*dirty*
                            (setf *dirty* nil)
-                           (host-draw host (funcall view-function
-                                                    (host-width host)
-                                                    (host-height host))))
+                           ;; A FLOAT, not the exact ratio the division gives:
+                           ;; a rational clock is surprising to arithmetic that
+                           ;; expects a number it can print, and ~F rejects it
+                           ;; outright -- which killed the worker on the first
+                           ;; frame after a touch and left the last frame on
+                           ;; screen looking like dead input.
+                           (let* ((clock (float (/ (get-internal-real-time)
+                                                   internal-time-units-per-second)
+                                                1.0d0))
+                                  (*frame-time* (- clock (or (host-started host)
+                                                             (setf (host-started host) clock))))
+                                  (*frame-delta* (min 1/10
+                                                      (- *frame-time*
+                                                         (or (host-last-frame host)
+                                                             *frame-time*))))
+                                  (*animating* nil))
+                             (setf (host-last-frame host) *frame-time*)
+                             (host-draw host (funcall view-function
+                                                      (host-width host)
+                                                      (host-height host)))
+                             ;; The view said it is not settled, so it is owed
+                             ;; another frame. Asked for AFTER the build, so an
+                             ;; animation that just finished does not get one.
+                             (when *animating* (invalidate))))
                           (t (sleep 0.008))))))))

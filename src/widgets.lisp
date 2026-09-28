@@ -100,20 +100,25 @@ bad model cannot draw outside its own track."
        (box (:width ,(round (* width fraction)) :height ,height
              :fill ,(or colour (theme :accent)))))))
 
-(defun switch (&key id on on-change (width 52) (height 28))
-  "A track with a knob at one end. ON is told, like every other widget state.
+(defun switch (&key id on position on-change (width 52) (height 28))
+  "A track with a knob. ON is told, like every other widget state.
 
-The knob is placed by a SPACER that grows on one side: :GROW is what expresses
-\"push this to the far end\", so the two positions are one tree with a flag
-rather than two trees."
-  (let ((knob (- height 8)))
+POSITION is the knob's travel from 0 to 1 and defaults to ON, so a caller who
+wants animation passes a fraction and one who does not passes nothing. The knob
+is placed by a spacer of computed width rather than a growing one: :GROW can
+only reach the far end, and a fraction has to stop in between.
+
+The track colour interpolates over the same fraction, so the whole control moves
+as one thing instead of the knob sliding across a track that snaps."
+  (let* ((knob (- height 8))
+         (fraction (max 0 (min 1 (or position (if on 1 0)))))
+         (travel (max 0 (- width 8 knob))))
     `(row (:width ,width :height ,height :cross-align :center :padding 4
-           :background ,(if on (theme :accent) (theme :disabled))
+           :background ,(mix-colours (theme :disabled) (theme :accent) fraction)
            :radius ,(floor height 2)
            :id ,id ,@(when on-change (list :on-press on-change)))
-       ,@(when on (list (spacer :grow 1)))
-       (box (:width ,knob :height ,knob :fill ,(theme :ink) :radius ,(floor knob 2)))
-       ,@(unless on (list (spacer :grow 1))))))
+       ,(spacer :width (round (* fraction travel)))
+       (box (:width ,knob :height ,knob :fill ,(theme :ink) :radius ,(floor knob 2))))))
 
 (defun labelled (text-string child &key (gap 6) (size 2))
   "CHILD with a caption above it."

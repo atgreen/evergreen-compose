@@ -54,3 +54,17 @@ rather than arithmetic, because most pixels in a UI are one of them."
                      (mix (colour-green over) (colour-green under))
                      (mix (colour-blue over) (colour-blue under))
                      (max alpha (colour-alpha under))))))))
+
+(defun mix-colours (from to fraction)
+  "FROM and TO mixed by FRACTION, 0 giving FROM and 1 giving TO.
+
+Component-wise and in straight RGBA, which is wrong for a physically correct
+blend and right for interpolating two UI colours -- a track fading from grey to
+blue should pass through the greys and blues between them, not through a
+gamma-correct curve nobody asked for."
+  (let ((f (max 0 (min 1 fraction))))
+    (flet ((mix (a b) (round (+ (* a (- 1 f)) (* b f)))))
+      (rgba (mix (colour-red from) (colour-red to))
+            (mix (colour-green from) (colour-green to))
+            (mix (colour-blue from) (colour-blue to))
+            (mix (colour-alpha from) (colour-alpha to))))))

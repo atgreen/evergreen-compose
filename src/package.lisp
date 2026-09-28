@@ -6,7 +6,7 @@
    :rect :rect-x :rect-y :rect-width :rect-height :rect-right :rect-bottom
    ;; paint
    :rgb :rgba :colour-red :colour-green :colour-blue :colour-alpha
-   :+black+ :+white+ :+transparent+
+   :+black+ :+white+ :+transparent+ :mix-colours :blend
    ;; the view tree
    :view-kind :view-props :view-children :view-prop
    ;; layout
@@ -23,6 +23,8 @@
    ;; the backend protocol
    :backend :present :backend-size :backend-text-metrics :use-backend :draw-frame
    :software-backend :make-software-backend :canvas-backend :make-canvas-backend
+   ;; the frame clock
+   :now :frame-delta :animating :approach :ease :*frame-time* :*frame-delta*
    ;; input and dispatch
    :hit-test :dispatch :node-prop :scale-point :scroll-by :*drag-slop*
    :laid-out-content
