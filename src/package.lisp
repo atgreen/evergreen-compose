@@ -19,6 +19,10 @@
    :native-pixel :colour-from-native
    ;; GLES backend (Android)
    :gles-init :gles-surface-size :gles-draw
+   ;; input and dispatch
+   :hit-test :dispatch :node-prop :scale-point
+   ;; widgets
+   :*theme* :theme :button :toggle :spacer :text
    ;; JNI, and the Canvas backend over Android's own Skia
    :jni-start :jni-check :jni-find-class :jni-method :jni-string
    :canvas-open :canvas-draw :canvas-pixels :canvas-release-pixels

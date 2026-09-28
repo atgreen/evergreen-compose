@@ -145,9 +145,74 @@
     (check "the stem of T is inked" +black+ (pixel-at surface 2 6))
     (check "T has no ink at its bottom-left" +white+ (pixel-at surface 0 6))))
 
+;;; ── hit testing and dispatch ──────────────────────────────────────────
+(defun test-input ()
+  (format t "input~%")
+  (let* ((tree '(column (:padding 10 :gap 5)
+                 (box (:width 40 :height 20 :id :first :on-press t))
+                 (box (:width 40 :height 20 :id :second :on-press t))))
+         (placed (layout tree 0 0)))
+    ;; First child sits at (10,10) after padding, 40x20.
+    (check "hits the first child" :first
+           (node-prop (hit-test placed 15 15) :id))
+    ;; Second is below it by the first child's height plus the gap.
+    (check "hits the second child" :second
+           (node-prop (hit-test placed 15 40) :id))
+    ;; Inside the container but on neither child: the container itself.
+    (check "falls back to the container" nil
+           (node-prop (hit-test placed 2 2) :id))
+    (check "misses entirely" nil (hit-test placed 500 500)))
+  ;; A later sibling paints over an earlier one, so it must win a shared point.
+  (let* ((tree '(column (:padding 0 :gap 0)
+                 (box (:width 40 :height 0 :id :under))
+                 (box (:width 40 :height 20 :id :over))))
+         (placed (layout tree 0 0)))
+    (check "the last painted wins" :over (node-prop (hit-test placed 5 5) :id)))
+  ;; DISPATCH calls the handler of the topmost node that HAS one, so a plain
+  ;; child inside an interactive parent hands the event to the parent.
+  (let* ((fired '())
+         (tree `(column (:on-press ,(lambda (n) (push :outer fired)))
+                  (box (:width 20 :height 20))
+                  (box (:width 20 :height 20
+                        :on-press ,(lambda (n) (push :inner fired))))))
+         (placed (layout tree 0 0)))
+    (dispatch placed 5 25 :on-press)
+    (check "dispatch reaches the inner handler" '(:inner) fired)
+    (dispatch placed 5 5 :on-press)
+    (check "and the parent when the child has none" '(:outer :inner) fired)
+    (check "a miss dispatches nothing" nil (dispatch placed 900 900 :on-press)))
+  ;; Physical touches must be converted before they mean anything.
+  (check "scales a touch to logical space" '(10 20)
+         (multiple-value-list (scale-point 30 60 3))))
+
+;;; ── widgets ──────────────────────────────────────────────────────────
+(defun test-widgets ()
+  (format t "widgets~%")
+  ;; A widget is just a function returning view data: the result must be a
+  ;; perfectly ordinary tree that LAYOUT and RENDER already understand.
+  (let ((view (button "OK" :id :ok :on-press #'identity)))
+    (check-true "a button is a view" (view-p view))
+    (check "it carries its id" :ok (view-prop view :id))
+    (check-true "it carries its handler" (view-prop view :on-press))
+    (check-true "it lays out" (plusp (nth-value 0 (measure view))))
+    (check-true "and it draws" (plusp (length (render (layout view 0 0))))))
+  ;; Disabled buttons must not be dispatchable, or a greyed-out control still
+  ;; fires when touched -- which looks like the app ignoring the disable.
+  (let ((view (button "No" :id :no :on-press #'identity :disabled t)))
+    (check "a disabled button has no handler" nil (view-prop view :on-press)))
+  ;; Pressed is TOLD, not remembered: the same call with a different flag is a
+  ;; different view, which is what keeps the interface a function of the model.
+  (check-true "pressed changes the rendering"
+              (not (equal (render (layout (button "A" :id :a) 0 0))
+                          (render (layout (button "A" :id :a :pressed t) 0 0)))))
+  ;; A spacer occupies room and paints nothing.
+  (check "a spacer takes space" '(10 4) (multiple-value-list (measure (spacer :width 10 :height 4))))
+  (check "and emits no drawing" 0 (length (render (layout (spacer :width 10 :height 4) 0 0)))))
+
 (defun run-tests ()
   (setf *failures* 0 *checks* 0)
   (test-geometry) (test-paint) (test-font)
   (test-layout) (test-render) (test-raster)
+  (test-input) (test-widgets)
   (format t "~%~D checks, ~D failures~%" *checks* *failures*)
   *failures*)

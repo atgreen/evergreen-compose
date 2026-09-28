@@ -10,6 +10,8 @@
                              (:file "font")
                              (:file "view")
                              (:file "layout")
+                             (:file "input")
+                             (:file "widgets")
                              (:file "display")
                              (:module "backend"
                               :components ((:file "software")))))))
