@@ -574,12 +574,79 @@
     (check "mixed text keeps its length"
            5 (length (round-trip (format nil "a~Ab~Ac" (code-char #x1f602) (code-char #x20ac)))))))
 
+(defun box-frame (node)
+  "A laid-out node's frame as (X Y WIDTH HEIGHT). EQUAL compares structs by
+identity, so a test that wants to compare two rectangles must compare numbers."
+  (let ((f (laid-out-frame node)))
+    (list (rect-x f) (rect-y f) (rect-width f) (rect-height f))))
+
+(defun test-stacking ()
+  (format t "stacking~%")
+  ;; :BOX stacks its children on the z axis -- the one arrangement ROW and
+  ;; COLUMN cannot express between them.
+  (let ((placed (layout '(box (:width 20 :height 10 :fill "#f00")) 0 0)))
+    (check "a childless box is still a plain rectangle"
+           '(0 0 20 10) (box-frame placed))
+    (check "and has no children to place" 0 (length (laid-out-children placed))))
+  (let ((placed (layout '(box ()
+                          (box (:width 10 :height 4))
+                          (box (:width 6 :height 8)))
+                        0 0)))
+    (check "a box is as large as its largest child, per axis"
+           '(0 0 10 8) (box-frame placed))
+    (check "both children are placed" 2 (length (laid-out-children placed)))
+    (check "and they overlap, at the same origin"
+           '((0 0 10 4) (0 0 6 8))
+           (mapcar #'box-frame (laid-out-children placed))))
+  (let ((placed (layout '(box (:padding 3)
+                          (box (:width 10 :height 4)))
+                        0 0)))
+    (check "padding grows the box" '(0 0 16 10) (box-frame placed))
+    (check "and insets the child"
+           '(3 3 10 4) (box-frame (first (laid-out-children placed)))))
+  ;; :ALIGN is horizontal and :CROSS-ALIGN vertical, as in a row: a stack has no
+  ;; main axis to tell them apart.
+  (let ((placed (layout '(box (:width 20 :height 10 :align :center :cross-align :center)
+                          (box (:width 4 :height 2)))
+                        0 0)))
+    (check "a centred child sits in the middle of the room"
+           '(8 4 4 2) (box-frame (first (laid-out-children placed)))))
+  (let ((placed (layout '(box (:width 20 :height 10 :align :end :cross-align :end)
+                          (box (:width 4 :height 2)))
+                        0 0)))
+    (check "and :END puts it at the far corner"
+           '(16 8 4 2) (box-frame (first (laid-out-children placed)))))
+  ;; A box with a size of its own hands that size DOWN as a maximum, so a child
+  ;; asking for more is clamped rather than overflowing -- the constraints
+  ;; protocol doing its job, and the reason alignment slack is never negative.
+  (let ((placed (layout '(box (:width 4 :height 4 :align :center)
+                          (box (:width 10 :height 10)))
+                        0 0)))
+    (check "a child cannot outgrow the box it is stacked in"
+           '(0 0 4 4) (box-frame (first (laid-out-children placed)))))
+  ;; Painted back to front, so a later child covers an earlier one -- which is
+  ;; the entire point of stacking.
+  (let ((ops (render (layout '(box (:fill "#001122")
+                               (box (:width 4 :height 4 :fill "#ff0000"))
+                               (box (:width 2 :height 2 :fill "#00ff00")))
+                             0 0))))
+    (check "the box paints first, then its children in order"
+           (list (colour "#001122") (colour "#ff0000") (colour "#00ff00"))
+           (mapcar (lambda (op) (car (last op))) ops)))
+  (let* ((placed (layout '(box ()
+                           (box (:width 8 :height 8 :id :under))
+                           (box (:width 8 :height 8 :id :over)))
+                         0 0))
+         (hit (hit-test placed 4 4)))
+    (check "and a touch lands on the topmost of them"
+           :over (node-prop hit :id))))
+
 (defun run-tests ()
   (setf *failures* 0 *checks* 0)
   (test-geometry) (test-paint) (test-font)
   (test-layout) (test-render) (test-raster)
   (test-input) (test-widgets) (test-constraints) (test-backend) (test-extension)
-  (test-utf8)
+  (test-utf8) (test-stacking)
   (test-composites) (test-corners-and-clipping) (test-scroll) (test-clock) (test-virtual-list) (test-image)
   (format t "~%~D checks, ~D failures~%" *checks* *failures*)
   *failures*)

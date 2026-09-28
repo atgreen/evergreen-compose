@@ -98,8 +98,19 @@ primitives. This is only for a genuinely NEW primitive.")
             function returning existing primitives instead. View: ~S" kind view)))
 
 (defmethod measure-kind ((kind (eql :box)) view constraints)
-  (declare (ignore constraints))
-  (values (view-prop view :width 0) (view-prop view :height 0)))
+  "A box with no children is a rectangle; a box WITH children stacks them.
+
+Stacking on the z axis is the one arrangement ROW and COLUMN cannot express
+between them, and everything that layers needs it: a badge over an icon, a label
+over an image, a scrim over a sheet, a spinner centred on a panel. It is the
+fourth most reached-for container in Compose for that reason.
+
+The childless case is not a special case so much as what stacking nothing
+reduces to, and it is the one SPACER and every plain fill rectangle rely on."
+  (if (view-children view)
+      (multiple-value-bind (width height) (box-metrics view constraints)
+        (values width height))
+      (values (view-prop view :width 0) (view-prop view :height 0))))
 
 (defmethod measure-kind ((kind (eql :label)) view constraints)
   (declare (ignore constraints))
@@ -133,8 +144,8 @@ when its children are placed -- and each computation walks every child. Caching
 the whole result, not just the child sizes, is what makes a container cost one
 distribution pass per layout instead of two.")
 
-(defun stack-metrics (view constraints)
-  "Memoised wrapper: see %STACK-METRICS."
+(defun metrics-memo (view constraints compute)
+  "COMPUTE's values for VIEW under CONSTRAINTS, remembered for this pass."
   (let* ((cache (or *stacked* (make-hash-table :test #'eq)))
          (key (list (constraints-min-width constraints)
                     (constraints-max-width constraints)
@@ -143,9 +154,43 @@ distribution pass per layout instead of two.")
          (hit (assoc key (gethash view cache) :test #'equal)))
     (if hit
         (values-list (cdr hit))
-        (let ((computed (multiple-value-list (%stack-metrics view constraints))))
+        (let ((computed (multiple-value-list (funcall compute view constraints))))
           (setf (gethash view cache) (cons (cons key computed) (gethash view cache)))
           (values-list computed)))))
+
+(defun stack-metrics (view constraints)
+  "Memoised wrapper: see %STACK-METRICS."
+  (metrics-memo view constraints #'%stack-metrics))
+
+(defun box-metrics (view constraints)
+  "Memoised wrapper: see %BOX-METRICS."
+  (metrics-memo view constraints #'%box-metrics))
+
+(defun %box-metrics (view constraints)
+  "The content size of a box with children, as width and height, with padding.
+
+Also returns, per child, its size AND THE CONSTRAINTS IT WAS MEASURED UNDER, for
+the reason %STACK-METRICS does: placing a child under anything else is a
+different memo key, and re-measuring its whole subtree there is what makes
+layout quadratic in depth.
+
+Children are measured LOOSELY on both axes. Tight would make every child the
+size of the box, which is what :GROW means elsewhere and is not what stacking
+means -- a stack is as large as its largest member, not the other way round."
+  (multiple-value-bind (top right bottom left) (padding-of view)
+    (let* ((own-width (view-prop view :width))
+           (own-height (view-prop view :height))
+           (outer-width (or own-width (constraints-max-width constraints)))
+           (outer-height (or own-height (constraints-max-height constraints)))
+           (room (constraints 0 (when outer-width (max 0 (- outer-width left right)))
+                              0 (when outer-height (max 0 (- outer-height top bottom)))))
+           (sizes (mapcar (lambda (child)
+                            (multiple-value-bind (w h) (measure child room)
+                              (list w h room)))
+                          (view-children view))))
+      (values (+ left right (reduce #'max (mapcar #'first sizes) :initial-value 0))
+              (+ top bottom (reduce #'max (mapcar #'second sizes) :initial-value 0))
+              sizes))))
 
 (defun %stack-metrics (view constraints)
   "The content size of a row or column, as main and cross, including padding.
@@ -249,10 +294,29 @@ placement pass a cache hit at every level and the whole walk linear."
 (defun %layout (view x y constraints)
   (multiple-value-bind (width height) (measure view constraints)
     (multiple-value-bind (top right bottom left) (padding-of view)
-      (declare (ignore right bottom))
       (let ((frame (rect x y width height))
             (children '())
             (content 0))
+        ;; A box places every child at the same origin, aligned in whatever room
+        ;; the box ended up with -- so they overlap, later ones over earlier.
+        ;; :ALIGN is horizontal and :CROSS-ALIGN vertical, as in a row, since a
+        ;; stack has no main axis to tell them apart.
+        (when (and (eq (view-kind view) :box) (view-children view))
+          (multiple-value-bind (w h sizes) (box-metrics view constraints)
+            (declare (ignore w h))
+            (let ((inner-width (max 0 (- width left right)))
+                  (inner-height (max 0 (- height top bottom))))
+              (loop for child in (view-children view)
+                    for size in sizes
+                    do (push (%layout child
+                                      (+ x left (align-offset
+                                                 (view-prop view :align)
+                                                 (max 0 (- inner-width (first size)))))
+                                      (+ y top (align-offset
+                                                (view-prop view :cross-align)
+                                                (max 0 (- inner-height (second size)))))
+                                      (third size))
+                             children)))))
         (when (stack-p view)
           (multiple-value-bind (main cross sizes) (stack-metrics view constraints)
             (declare (ignore main cross))

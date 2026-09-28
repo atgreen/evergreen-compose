@@ -62,16 +62,36 @@ adb install -r --user 0 demo/build/*/debug/app.apk
 work profile, an unqualified `adb install` can put the app under a user you did
 not choose.
 
+## The primitives
+
+Five, and only five: `label`, `image`, `box`, `row` and `column`. A `box` with no
+children is a rectangle; a `box` with children **stacks** them on the z axis,
+which is the one arrangement `row` and `column` cannot express between them — a
+badge over an icon, a scrim over a sheet, a spinner centred on a panel.
+
+Everything else is a function. `button` is a `column` with a `label` in it;
+`switch`, `progress`, `scroll`, `virtual-list` and the rest are the same. A
+handler is a *property*, not a widget, so any node is touchable:
+
+```lisp
+(column (:on-press #'choose) …)
+```
+
+Adding a genuinely new primitive means a `measure-kind` and a `render-kind`
+method. Adding a widget means writing a function, and the framework does not need
+to be told.
+
 ## What this is not, yet
 
-Text is a 5x7 bitmap font. That is enough to build and test the layout and raster
-layers against something legible, and it is **not** the text story — real text is
-Unicode segmentation, bidi, shaping, fallback and line breaking, which means
-HarfBuzz and ICU through the FFI.
+Text is a 5x7 bitmap font in the software rasterizer. On a phone the Canvas
+backend draws through `android.graphics.Paint` — Skia, and therefore HarfBuzz and
+ICU — so shaping is real there, but line breaking, wrapping and bidi paragraphs
+are not: those want `android.text.StaticLayout`.
 
-There is no accessibility, no IME, no scrolling, no gesture recognition, no
-animation, and layout is one pass of intrinsic sizing with no constraints
-travelling down. Those are known, not overlooked.
+There is no accessibility, no widget set to speak of (twelve, against Material
+3's hundred), no shadows and so no elevation, no icons, and the whole view tree
+is rebuilt every frame rather than recomposed. Scrolling has no fling and nothing
+survives a rotation. Those are known, not overlooked, and they are filed.
 
 ## Licence
 
