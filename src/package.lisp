@@ -30,6 +30,9 @@
    :vstack :hstack :progress :switch :labelled
    ;; JNI, and the Canvas backend over Android's own Skia
    :jni-start :jni-check :jni-find-class :jni-method :jni-string
+   ;; the Android host: window, touch mapping and the frame loop
+   :*pressed* :*dirty* :invalidate :android-host :open-android-host :run-android-app
+   :host-width :host-height :host-placed :host-backend
    :canvas-open :canvas-draw :canvas-pixels :canvas-release-pixels
    :*measure-text* :bitmap-text-extent :text-extent
    :canvas-width :canvas-height)
