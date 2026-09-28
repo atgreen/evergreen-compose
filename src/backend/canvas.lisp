@@ -25,7 +25,9 @@
   set-colour set-text-size set-anti-alias ascent
   width height
   lock-pixels unlock-pixels bitmap-info info-buffer
-  (strings (make-hash-table :test #'equal)))
+  create-bitmap bitmap-class argb-8888 draw-bitmap src-rect dst-rect rect-set rectf-set
+  (strings (make-hash-table :test #'equal))
+  (images (make-hash-table :test #'eq)))
 
 (defun android-colour (colour)
   "A Bliss #xRRGGBBAA colour as Android's ARGB integer.
@@ -86,7 +88,23 @@ int Java expects rather than a positive bignum."
                                    "AndroidBitmap_unlockPixels" graphics)
                    :bitmap-info (torcl-ffi:foreign-symbol-pointer
                                  "AndroidBitmap_getInfo" graphics)
-                   :info-buffer (torcl-ffi:foreign-alloc 32))))
+                   :info-buffer (torcl-ffi:foreign-alloc 32)
+                   :create-bitmap create :bitmap-class bitmap-class :argb-8888 argb-8888
+                   :draw-bitmap (jni-method canvas-class "drawBitmap"
+                                            "(Landroid/graphics/Bitmap;Landroid/graphics/Rect;Landroid/graphics/RectF;Landroid/graphics/Paint;)V")
+                   ;; One Rect and one RectF, reused and re-SET per draw. Making
+                   ;; a pair per image per frame would cost two allocations and
+                   ;; two constructor calls at ~35us each, to say four numbers.
+                   :src-rect (let ((class (jni-find-class "android/graphics/Rect")))
+                               (jni-global (jni-new class (jni-method class "<init>" "()V")
+                                                    (jni-args))))
+                   :dst-rect (let ((class (jni-find-class "android/graphics/RectF")))
+                               (jni-global (jni-new class (jni-method class "<init>" "()V")
+                                                    (jni-args))))
+                   :rect-set (jni-method (jni-find-class "android/graphics/Rect")
+                                         "set" "(IIII)V")
+                   :rectf-set (jni-method (jni-find-class "android/graphics/RectF")
+                                          "set" "(FFFF)V"))))
       ;; Antialiasing on, once. It is a Paint flag, not a per-call argument, and
       ;; it is the reason for using Skia at all.
       (jni-call-void paint (canvas-set-anti-alias canvas) (jni-args (list :int 1)))
@@ -137,6 +155,35 @@ label measured during layout is measured again on the next frame otherwise."
                         (setf (gethash key cache) extent)
                         (values (car extent) (cdr extent)))))))))))
 
+(defun canvas-image (canvas source)
+  "SOURCE as a Java Bitmap, uploaded once and cached.
+
+A Bliss surface stores one word per pixel with its bytes in R,G,B,A order, which
+is exactly what Android calls ARGB_8888 in memory, so the upload is a bulk copy
+into the Bitmap's own buffer rather than a per-pixel conversion. Cached by the
+surface's identity: re-uploading an unchanged image every frame would cost more
+than drawing it."
+  (or (gethash source (canvas-images canvas))
+      (let* ((width (surface-width source))
+             (height (surface-height source))
+             (bitmap (jni-global
+                      (jni-call-static-object
+                       (canvas-bitmap-class canvas) (canvas-create-bitmap canvas)
+                       (jni-args (list :int width) (list :int height)
+                                 (list :object (canvas-argb-8888 canvas))))))
+             (address (torcl-ffi:foreign-alloc 8)))
+        (jni-check)
+        (unless (zerop (torcl-ffi:foreign-call (canvas-lock-pixels canvas) :int
+                                               '(:pointer :pointer :pointer)
+                                               (list *env* bitmap address)))
+          (error "AndroidBitmap_lockPixels failed for an image"))
+        (torcl::%foreign-memory :copy-in (torcl-ffi:mem-ref address :pointer)
+                                (surface-pixels source) :unsigned-int)
+        (torcl-ffi:foreign-call (canvas-unlock-pixels canvas) :int '(:pointer :pointer)
+                                (list *env* bitmap))
+        (torcl-ffi:foreign-free address)
+        (setf (gethash source (canvas-images canvas)) bitmap))))
+
 (defun canvas-string (canvas text)
   "TEXT as a cached jstring. Built once per distinct string: at ~27us each,
 rebuilding a label's string every frame costs more than drawing it."
@@ -176,6 +223,21 @@ drawText call, with real shaping and antialiasing."
                                     (list :float (+ x w)) (list :float (+ y h))
                                     (list :float radius) (list :float radius)
                                     (list :object paint)))))
+        (:image
+         (destructuring-bind (x y w h source) (rest op)
+           (let ((bitmap (canvas-image canvas source)))
+             (jni-call-void (canvas-src-rect canvas) (canvas-rect-set canvas)
+                            (jni-args (list :int 0) (list :int 0)
+                                      (list :int (surface-width source))
+                                      (list :int (surface-height source))))
+             (jni-call-void (canvas-dst-rect canvas) (canvas-rectf-set canvas)
+                            (jni-args (list :float x) (list :float y)
+                                      (list :float (+ x w)) (list :float (+ y h))))
+             (jni-call-void object (canvas-draw-bitmap canvas)
+                            (jni-args (list :object bitmap)
+                                      (list :object (canvas-src-rect canvas))
+                                      (list :object (canvas-dst-rect canvas))
+                                      (list :object paint))))))
         (:fill-rect
          (destructuring-bind (x y w h colour) (rest op)
            (jni-call-void paint (canvas-set-colour canvas)

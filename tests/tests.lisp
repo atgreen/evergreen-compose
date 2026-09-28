@@ -513,11 +513,42 @@
     (check-true "a scrolled list builds the scrolled rows"
                 (and (every (lambda (i) (< 90 i 115)) built) built))))
 
+;;; ── images ────────────────────────────────────────────────────────────
+(defun test-image ()
+  (format t "image~%")
+  (let ((source (make-surface 2 2 (rgb 255 0 0))))
+    (setf (pixel-at source 1 1) (rgb 0 0 255))
+    ;; An image measures to its own pixels unless told otherwise.
+    (check "an image is its own size" '(2 2)
+           (multiple-value-list (measure (image source))))
+    (check "unless scaled" '(20 20)
+           (multiple-value-list (measure (image source :width 20 :height 20))))
+    ;; It reaches the display list as one operation, not as rectangles.
+    (let ((ops (render (layout (image source) 0 0))))
+      (check "it emits one image op" :image (first (first ops)))
+      ;; And FLATTEN refuses rather than silently dropping it, because a
+      ;; rectangle-only backend genuinely cannot draw one.
+      (check "flatten refuses an image" t
+             (handler-case (progn (flatten-to-rects ops) nil) (error () t))))
+    ;; Scaling is nearest-neighbour: the destination asks which source pixel it
+    ;; lands on, so a 2x2 scaled to 4x4 puts each source pixel in a quadrant.
+    (let ((target (make-surface 4 4 +white+)))
+      (draw target (render (layout (image source :width 4 :height 4) 0 0)))
+      (check "the scaled image fills its box" (rgb 255 0 0) (pixel-at target 0 0))
+      (check "and keeps its own pixels apart" (rgb 0 0 255) (pixel-at target 3 3)))
+    ;; Images clip like everything else.
+    (let ((target (make-surface 8 8 +white+)))
+      (draw target (render (layout `(column (:clip t :width 2 :height 2)
+                                      ,(image source :width 8 :height 8))
+                                   0 0 (constraints 0 8 0 8))))
+      (check "an image is clipped" +white+ (pixel-at target 5 5))
+      (check "inside the clip it draws" (rgb 255 0 0) (pixel-at target 0 0)))))
+
 (defun run-tests ()
   (setf *failures* 0 *checks* 0)
   (test-geometry) (test-paint) (test-font)
   (test-layout) (test-render) (test-raster)
   (test-input) (test-widgets) (test-constraints) (test-backend) (test-extension)
-  (test-composites) (test-corners-and-clipping) (test-scroll) (test-clock) (test-virtual-list)
+  (test-composites) (test-corners-and-clipping) (test-scroll) (test-clock) (test-virtual-list) (test-image)
   (format t "~%~D checks, ~D failures~%" *checks* *failures*)
   *failures*)

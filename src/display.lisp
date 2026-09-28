@@ -46,6 +46,21 @@ its edge at that height, which is the circle equation and nothing cleverer."
                 (list :fill-rect (rect-x frame) (rect-y frame)
                       (rect-width frame) (rect-height frame) (colour fill)))))))
 
+(defmethod measure-kind ((kind (eql :image)) view constraints)
+  (declare (ignore constraints))
+  ;; An image wants its own pixel size; a caller who wants it scaled says so
+  ;; with :WIDTH or :HEIGHT, which %MEASURE applies over the top of this.
+  (let ((source (view-prop view :source)))
+    (if source
+        (values (surface-width source) (surface-height source))
+        (values 0 0))))
+
+(defmethod render-kind ((kind (eql :image)) view frame)
+  (let ((source (view-prop view :source)))
+    (when source
+      (list (list :image (rect-x frame) (rect-y frame)
+                  (rect-width frame) (rect-height frame) source)))))
+
 (defgeneric render-kind (kind view frame)
   (:documentation "The display operations a VIEW of KIND contributes at FRAME,
 as a list, painted before its children.
@@ -123,6 +138,11 @@ cache. The GLES backend is six entry points because of this."
              (dolist (span (round-rect-spans x y w h radius))
                (apply #'clipped (append span (list colour))))))
           (:fill-rect (apply #'clipped (rest op)))
+          ;; An image is the one operation that does NOT reduce to rectangles.
+          ;; A backend which only fills rectangles cannot draw one, and silently
+          ;; dropping it would leave a hole nobody could account for.
+          (:image (error "FLATTEN-TO-RECTS cannot reduce an image. A backend ~
+                          that draws images must handle :IMAGE itself."))
           (:glyphs
            (destructuring-bind (x y text scale colour) (rest op)
              (loop for character across text

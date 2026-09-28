@@ -171,3 +171,13 @@ would drift as it scrolled."
             collect `(column (:height ,item-height) ,(funcall item index)))
       (list (spacer :height (* (- count last) item-height))))
      :id id :offset offset :height viewport :width width :on-drag on-drag)))
+
+(defun image (source &key width height)
+  "SOURCE drawn at its own size, or scaled to WIDTH and HEIGHT.
+
+SOURCE is a Bliss surface -- the same thing the software backend draws into --
+so an image may equally be decoded from a file, generated, or rendered by Bliss
+itself offscreen. The framework does not care where the pixels came from."
+  `(image (:source ,source
+           ,@(when width (list :width width))
+           ,@(when height (list :height height)))))

@@ -155,11 +155,39 @@ and then filling each is what made this slow in the first place."
            (dolist (span (round-rect-spans x y w h radius))
              (destructuring-bind (sx sy sw sh) span
                (fill-clipped surface sx sy sw sh colour (first clips))))))
+        (:image (destructuring-bind (x y w h source) (rest op)
+                  (draw-image surface x y w h source (first clips))))
         (:glyphs (destructuring-bind (x y text scale colour) (rest op)
                    (let ((*glyph-clip* (first clips)))
                      (draw-glyphs surface x y text scale colour))))))))
 
 (defvar *glyph-clip* nil "Clip applied to glyph fills, or NIL for none.")
+
+(defun draw-image (surface x y width height source clip)
+  "Blit SOURCE into SURFACE at (X,Y), scaled to WIDTH by HEIGHT.
+
+Nearest-neighbour: the destination pixel asks which source pixel it lands on,
+which is the right sampling for the pixel art this rasterizer exists to draw and
+the wrong one for a photograph. A backend with a real image pipeline -- Canvas
+has one -- should draw the image itself rather than come through here."
+  (when (and (plusp width) (plusp height))
+    (let* ((area (rect-intersect (rect x y width height)
+                                 (if clip
+                                     (or (rect-intersect clip (surface-rect surface))
+                                         (rect 0 0 0 0))
+                                     (surface-rect surface))))
+           (source-width (surface-width source))
+           (source-height (surface-height source)))
+      (when area
+        (loop for py from (rect-y area) below (rect-bottom area)
+              do (let ((sy (min (1- source-height)
+                                (floor (* (- py y) source-height) height))))
+                   (loop for px from (rect-x area) below (rect-right area)
+                         do (let ((sx (min (1- source-width)
+                                           (floor (* (- px x) source-width) width))))
+                              (setf (pixel-at surface px py)
+                                    (blend (pixel-at source sx sy)
+                                           (pixel-at surface px py)))))))))))
 
 (defun fill-clipped (surface x y width height colour clip)
   "FILL-RECT, first intersected with CLIP when there is one."
