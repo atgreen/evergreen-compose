@@ -30,6 +30,10 @@ told whether it is pressed without remembering anything itself.")
    (x-ratio :initarg :x-ratio :reader host-x-ratio)
    (y-ratio :initarg :y-ratio :reader host-y-ratio)
    (placed :initform nil :accessor host-placed)
+   (drag-node :initform nil :accessor host-drag-node)
+   (drag-origin :initform nil :accessor host-drag-origin)
+   (drag-last :initform nil :accessor host-drag-last)
+   (dragging :initform nil :accessor host-dragging)
    (last-display :initform nil :accessor host-last-display)))
 
 (defun android-call (host name return types arguments)
@@ -133,11 +137,39 @@ the widget the press armed -- which is what lets a finger slide off to cancel."
                      ;; Both edges owe a frame: a press changes the held
                      ;; highlight even when it fires nothing.
                      (0 (setf *pressed* (and hit (node-prop hit :id))
-                              acted t))
-                     (1 (when (and hit *pressed*
+                              acted t
+                              (host-dragging host) nil
+                              (host-drag-origin host) (cons lx ly)
+                              (host-drag-last host) (cons lx ly)
+                              ;; A drag may be captured by an ANCESTOR of what
+                              ;; was pressed: a finger landing on a button
+                              ;; inside a list still scrolls the list.
+                              (host-drag-node host)
+                              (hit-test placed lx ly
+                                        (lambda (n) (node-prop n :on-drag)))))
+                     (2 (let ((node (host-drag-node host))
+                              (origin (host-drag-origin host)))
+                          (when (and node origin)
+                            ;; Past the slop the touch is a drag, and stops
+                            ;; being a press: a finger that scrolls away from a
+                            ;; button must not also press it.
+                            (when (or (host-dragging host)
+                                      (> (+ (abs (- lx (car origin)))
+                                            (abs (- ly (cdr origin))))
+                                         *drag-slop*))
+                              (unless (host-dragging host)
+                                (setf (host-dragging host) t *pressed* nil))
+                              (let ((last (host-drag-last host)))
+                                (funcall (node-prop node :on-drag) node
+                                         (- lx (car last)) (- ly (cdr last))))
+                              (setf (host-drag-last host) (cons lx ly)
+                                    acted t)))))
+                     (1 (when (and hit *pressed* (not (host-dragging host))
                                    (eq *pressed* (node-prop hit :id)))
                           (funcall (node-prop hit :on-press) hit))
-                        (setf *pressed* nil acted t)))))))
+                        (setf *pressed* nil acted t
+                              (host-drag-node host) nil
+                              (host-dragging host) nil)))))))
     acted))
 
 (defvar *dirty* t

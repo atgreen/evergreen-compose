@@ -118,3 +118,16 @@ rather than two trees."
 (defun labelled (text-string child &key (gap 6) (size 2))
   "CHILD with a caption above it."
   `(column (:gap ,gap) ,(text text-string :size size :colour (theme :muted)) ,child))
+
+(defun scroll (children &key id (offset 0) on-drag height width)
+  "A clipped container whose children are shifted by OFFSET.
+
+Not a new primitive: a column that clips and offsets IS a scroll view, so this
+is a function returning one. The offset lives in the application, like every
+other widget state, and ON-DRAG is handed the laid-out node so SCROLL-BY can
+clamp against the content it actually has."
+  `(column (:clip t :scroll t :offset-y ,offset :id ,id
+            ,@(when on-drag (list :on-drag on-drag))
+            ,@(when height (list :height height))
+            ,@(when width (list :width width)))
+     ,@children))

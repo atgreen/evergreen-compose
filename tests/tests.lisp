@@ -404,11 +404,53 @@
                                   0 0)))
     (check "glyphs outside the clip are dropped" +white+ (pixel-at surface 20 3))))
 
+;;; ── scrolling ─────────────────────────────────────────────────────────
+(defun test-scroll ()
+  (format t "scroll~%")
+  ;; A laid-out container knows how far its children extend, which is the number
+  ;; a scroller needs and the frame does not give.
+  (let ((placed (layout '(column (:gap 0 :height 20 :scroll t)
+                          (box (:width 10 :height 30))
+                          (box (:width 10 :height 30)))
+                        0 0 (constraints 0 100 0 20))))
+    (check "content is what is inside, not the viewport" 60 (laid-out-content placed))
+    (check "the frame is the viewport" 20 (rect-height (laid-out-frame placed))))
+  ;; :OFFSET-Y moves the children and leaves the container where it is.
+  (let* ((tree '(column (:gap 0 :offset-y 12 :height 20 :scroll t)
+                 (box (:width 10 :height 30))))
+         (placed (layout tree 0 0 (constraints 0 100 0 20))))
+    (check "the container does not move" 0 (rect-y (laid-out-frame placed)))
+    (check "the children do" -12
+           (rect-y (laid-out-frame (first (laid-out-children placed))))))
+  ;; SCROLL-BY clamps to what is actually scrollable.
+  (let ((placed (layout '(column (:gap 0 :height 20 :scroll t)
+                          (box (:width 10 :height 50)))
+                        0 0 (constraints 0 100 0 20))))
+    (check "scrolls within range" 10 (scroll-by placed 0 10))
+    (check "stops at the end" 30 (scroll-by placed 0 999))
+    (check "and does not go negative" 0 (scroll-by placed 5 -99)))
+  ;; Content shorter than the viewport cannot scroll at all.
+  (let ((placed (layout '(column (:gap 0 :height 50 :scroll t)
+                          (box (:width 10 :height 10)))
+                        0 0 (constraints 0 100 0 50))))
+    (check "a short scroller does not move" 0 (scroll-by placed 0 100)))
+  ;; The SCROLL widget is a clipping, offset column and nothing more.
+  (let ((view (scroll (list '(box (:width 10 :height 99))) :id :s :offset 7 :height 20)))
+    (check-true "scroll clips" (view-prop view :clip))
+    (check-true "and measures its children unbounded" (view-prop view :scroll))
+    (check "and carries its offset" 7 (view-prop view :offset-y))
+    ;; Its children really are clipped away when off-screen.
+    (let ((surface (make-surface 20 20 +white+)))
+      (draw surface (render (layout (scroll (list '(box (:width 20 :height 20 :fill "#000000")))
+                                            :id :s :offset 20 :height 20)
+                                    0 0 (constraints 0 20 0 20))))
+      (check "a fully scrolled child leaves nothing" +white+ (pixel-at surface 10 10)))))
+
 (defun run-tests ()
   (setf *failures* 0 *checks* 0)
   (test-geometry) (test-paint) (test-font)
   (test-layout) (test-render) (test-raster)
   (test-input) (test-widgets) (test-constraints) (test-backend) (test-extension)
-  (test-composites) (test-corners-and-clipping)
+  (test-composites) (test-corners-and-clipping) (test-scroll)
   (format t "~%~D checks, ~D failures~%" *checks* *failures*)
   *failures*)

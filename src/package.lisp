@@ -24,10 +24,11 @@
    :backend :present :backend-size :backend-text-metrics :use-backend :draw-frame
    :software-backend :make-software-backend :canvas-backend :make-canvas-backend
    ;; input and dispatch
-   :hit-test :dispatch :node-prop :scale-point
+   :hit-test :dispatch :node-prop :scale-point :scroll-by :*drag-slop*
+   :laid-out-content
    ;; widgets
    :*theme* :theme :theme-value :button :toggle :spacer :text
-   :vstack :hstack :progress :switch :labelled
+   :vstack :hstack :progress :switch :labelled :scroll
    ;; JNI, and the Canvas backend over Android's own Skia
    :jni-start :jni-check :jni-find-class :jni-method :jni-string
    ;; the Android host: window, touch mapping and the frame loop

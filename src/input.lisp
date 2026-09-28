@@ -52,3 +52,23 @@ absorb and small controls do not -- a switch stops responding while everything
 around it still works, which reads as a broken widget rather than broken
 arithmetic."
   (values (floor x x-scale) (floor y y-scale)))
+
+;;; ── drag ──────────────────────────────────────────────────────────────
+
+(defparameter *drag-slop* 8
+  "Logical pixels a finger must travel before a touch becomes a drag.
+
+Without a threshold every tap is a one-pixel drag, because fingers move. With
+one, a press that wanders slightly still fires as a press, and a scroll that
+begins on a button does not press it.")
+
+(defun scroll-by (node offset delta)
+  "OFFSET moved by DELTA and clamped to what NODE can actually scroll.
+
+Clamping needs both numbers the laid-out node already has: its frame is the
+viewport and its CONTENT is what is inside, so the furthest it may scroll is the
+difference. A scroller shorter than its viewport cannot scroll at all, which
+falls out as a limit of zero rather than needing a case."
+  (let ((limit (max 0 (- (laid-out-content node)
+                         (rect-height (laid-out-frame node))))))
+    (max 0 (min limit (+ offset delta)))))

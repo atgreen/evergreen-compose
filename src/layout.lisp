@@ -27,8 +27,12 @@ intrinsically-sized subtree is measured under."
 (defun clamp-to (value minimum maximum)
   (max minimum (if maximum (min value maximum) value)))
 
-(defstruct (laid-out (:constructor laid-out (view frame children)))
-  view frame children)
+(defstruct (laid-out (:constructor laid-out (view frame children &optional content)))
+  view frame children
+  (content 0)
+  (:documentation "A placed node. CONTENT is how far its children actually
+extend along the main axis, which is what a scroller needs to know how far it
+may scroll -- the frame is the viewport, the content is what is inside it."))
 
 (defun padding-of (view)
   "Padding as top, right, bottom, left. A number for all four sides, or a list."
@@ -170,6 +174,11 @@ placement pass a cache hit at every level and the whole walk linear."
                             (cross-of row (constraints-max-width constraints)
                                       (constraints-max-height constraints))))
            (room (when outer-main (max 0 (- outer-main main-pad))))
+           ;; A scroller measures its children UNBOUNDED along the scroll axis.
+           ;; Bounded by the viewport they are squashed to fit it, the content
+           ;; is exactly the viewport, and there is nothing to scroll -- which
+           ;; is a scroll view that silently does not.
+           (child-room (if (view-prop view :scroll) nil room))
            (cross-room (when outer-cross (max 0 (- outer-cross cross-pad))))
            (gaps (* gap (max 0 (1- (length children)))))
            (grows (mapcar (lambda (c) (view-prop c :grow 0)) children))
@@ -182,8 +191,8 @@ placement pass a cache hit at every level and the whole walk linear."
             for i from 0
             when (zerop grow)
               do (let ((c (if row
-                              (constraints 0 room 0 cross-room)
-                              (constraints 0 cross-room 0 room))))
+                              (constraints 0 child-room 0 cross-room)
+                              (constraints 0 cross-room 0 child-room))))
                    (setf (nth i sizes)
                          (multiple-value-bind (w h) (measure child c) (list w h c)))))
       (let* ((fixed (loop for size in sizes when size
@@ -203,8 +212,8 @@ placement pass a cache hit at every level and the whole walk linear."
                                      (floor (* remaining grow) shares)
                                      nil))
                           (c (cond ((null share)
-                                    (if row (constraints 0 room 0 cross-room)
-                                        (constraints 0 cross-room 0 room)))
+                                    (if row (constraints 0 child-room 0 cross-room)
+                                        (constraints 0 cross-room 0 child-room)))
                                    (row (constraints share share 0 cross-room))
                                    (t (constraints 0 cross-room share share)))))
                      (setf (nth i sizes)
@@ -242,24 +251,34 @@ placement pass a cache hit at every level and the whole walk linear."
     (multiple-value-bind (top right bottom left) (padding-of view)
       (declare (ignore right bottom))
       (let ((frame (rect x y width height))
-            (children '()))
+            (children '())
+            (content 0))
         (when (stack-p view)
           (multiple-value-bind (main cross sizes) (stack-metrics view constraints)
             (declare (ignore main cross))
             (let* ((row (row-p view))
                    (gap (view-prop view :gap 0))
                    (kids (view-children view))
-                   (content (+ (* gap (max 0 (1- (length kids))))
-                               (loop for size in sizes
-                                     sum (main-of row (first size) (second size)))))
-                   (inner-main (- (main-of row width height)
-                                  (main-of row (+ left (nth-value 1 (padding-of view)))
-                                           (+ top (nth-value 2 (padding-of view))))))
+                   (ignore (setf content
+                                 (+ (* gap (max 0 (1- (length kids))))
+                                    (loop for size in sizes
+                                          sum (main-of row (first size) (second size))))))
+                   (inner-main (progn ignore
+                                      (- (main-of row width height)
+                                         (main-of row (+ left (nth-value 1 (padding-of view)))
+                                                  (+ top (nth-value 2 (padding-of view)))))))
                    (inner-cross (- (cross-of row width height)
                                    (cross-of row (+ left (nth-value 1 (padding-of view)))
                                              (+ top (nth-value 2 (padding-of view))))))
+                   ;; :OFFSET-Y and :OFFSET-X move the CHILDREN without moving
+                   ;; the container. With :CLIP that is exactly a scroll view,
+                   ;; and it needs no new primitive: the container is still a
+                   ;; column and the children are still placed in order.
+                   (offset (main-of row (view-prop view :offset-x 0)
+                                    (view-prop view :offset-y 0)))
                    (cursor (+ (main-of row x y)
                               (main-of row left top)
+                              (- offset)
                               (align-offset (view-prop view :align)
                                             (max 0 (- inner-main content))))))
               (loop for child in kids
@@ -279,4 +298,4 @@ placement pass a cache hit at every level and the whole walk linear."
                          ;; here is what made layout quadratic in depth.
                          (push (%layout child cx cy (third size)) children)
                          (incf cursor (+ child-main gap)))))))
-        (laid-out view frame (nreverse children))))))
+        (laid-out view frame (nreverse children) content)))))
