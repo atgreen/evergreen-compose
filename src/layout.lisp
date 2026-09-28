@@ -63,24 +63,50 @@ intrinsically-sized subtree is measured under."
             (setf (gethash key cache) (cons w h))
             (values w h))))))
 
-(defun %measure (view constraints)
+(defgeneric measure-kind (kind view constraints)
+  (:documentation "The content size of a VIEW of KIND, before its own :WIDTH or
+:HEIGHT and the incoming constraints are applied.
+
+A generic function, specialised on the kind KEYWORD, so a primitive can be added
+from outside this file. That is the open-for-extension part of CLOS applied
+where it costs nothing -- once per node rather than once per pixel -- while the
+tree itself stays data that can be quoted, printed, read back and diffed.
+
+A composite widget needs none of this: it is a function returning existing
+primitives. This is only for a genuinely NEW primitive.")
+  (:method (kind view constraints)
+    (declare (ignore constraints))
+    (error "No MEASURE-KIND method for ~S. A new primitive needs one, and a ~
+            RENDER-KIND method; a composite widget needs neither -- write a ~
+            function returning existing primitives instead. View: ~S" kind view)))
+
+(defmethod measure-kind ((kind (eql :box)) view constraints)
+  (declare (ignore constraints))
+  (values (view-prop view :width 0) (view-prop view :height 0)))
+
+(defmethod measure-kind ((kind (eql :label)) view constraints)
+  (declare (ignore constraints))
   (multiple-value-bind (top right bottom left) (padding-of view)
-    (flet ((fit (w h)
-             (values (clamp-to (view-prop view :width w)
-                               (constraints-min-width constraints)
-                               (constraints-max-width constraints))
-                     (clamp-to (view-prop view :height h)
-                               (constraints-min-height constraints)
-                               (constraints-max-height constraints)))))
-      (ecase (view-kind view)
-        (:box (fit (view-prop view :width 0) (view-prop view :height 0)))
-        (:label (multiple-value-bind (w h)
-                    (text-extent (view-prop view :text "") (view-prop view :size 1))
-                  (fit (+ w left right) (+ h top bottom))))
-        ((:row :column)
-         (multiple-value-bind (main cross) (stack-metrics view constraints)
-           (multiple-value-bind (w h) (sized (row-p view) main cross)
-             (fit w h))))))))
+    (multiple-value-bind (w h)
+        (text-extent (view-prop view :text "") (view-prop view :size 1))
+      (values (+ w left right) (+ h top bottom)))))
+
+(defmethod measure-kind ((kind (eql :row)) view constraints)
+  (multiple-value-bind (main cross) (stack-metrics view constraints)
+    (sized t main cross)))
+
+(defmethod measure-kind ((kind (eql :column)) view constraints)
+  (multiple-value-bind (main cross) (stack-metrics view constraints)
+    (sized nil main cross)))
+
+(defun %measure (view constraints)
+  (multiple-value-bind (width height) (measure-kind (view-kind view) view constraints)
+    (values (clamp-to (view-prop view :width width)
+                      (constraints-min-width constraints)
+                      (constraints-max-width constraints))
+            (clamp-to (view-prop view :height height)
+                      (constraints-min-height constraints)
+                      (constraints-max-height constraints)))))
 
 (defun stack-metrics (view constraints)
   "The content size of a row or column, as main and cross, including padding.

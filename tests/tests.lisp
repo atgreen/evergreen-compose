@@ -293,10 +293,47 @@
       (check "and it actually painted" (rgb 255 0 0)
              (pixel-at (software-backend-surface backend) 20 2)))))
 
+;;; ── extending the framework from outside ──────────────────────────────
+;;;
+;;; A NEW PRIMITIVE, defined here in the test file rather than in the framework.
+;;; Nothing in src/ knows :RULE exists. This is what the generic functions buy:
+;;; the tree is still data, and the set of things a tree may contain is open.
+;;;
+;;; A composite widget needs none of this -- it is a function returning existing
+;;; primitives. This is only for something the existing primitives cannot say.
+
+(defmethod measure-kind ((kind (eql :rule)) view constraints)
+  (declare (ignore constraints))
+  ;; A rule is as wide as it is allowed to be and as thick as it is told.
+  (values 0 (view-prop view :thickness 1)))
+
+(defmethod render-kind ((kind (eql :rule)) view frame)
+  (list (list :fill-rect (rect-x frame) (rect-y frame)
+              (rect-width frame) (rect-height frame)
+              (colour (view-prop view :colour "#808080")))))
+
+(defun test-extension ()
+  (format t "extension~%")
+  (let ((view '(rule (:thickness 2 :colour "#ff0000"))))
+    (check "a new primitive measures" '(0 2) (multiple-value-list (measure view)))
+    ;; It takes part in constraints like anything else, so :GROW works on it
+    ;; without the framework having heard of it.
+    (let* ((tree '(row (:gap 0) (rule (:thickness 2 :grow 1))))
+           (kid (first (laid-out-children (layout tree 0 0 (constraints 0 50 0 50))))))
+      (check "and grows" 50 (rect-width (laid-out-frame kid))))
+    ;; And it draws, through the same display list every backend already speaks.
+    (let ((ops (render (layout view 0 0 (constraints 10 10 0 10)))))
+      (check "it emits one rectangle" 1 (length ops))
+      (check "of its own colour" (rgb 255 0 0) (sixth (first ops)))))
+  ;; An unknown kind is a clear error, not a silent omission from the frame.
+  (check "an unknown primitive is reported" t
+         (handler-case (progn (measure '(nonesuch ())) nil)
+           (error () t))))
+
 (defun run-tests ()
   (setf *failures* 0 *checks* 0)
   (test-geometry) (test-paint) (test-font)
   (test-layout) (test-render) (test-raster)
-  (test-input) (test-widgets) (test-constraints) (test-backend)
+  (test-input) (test-widgets) (test-constraints) (test-backend) (test-extension)
   (format t "~%~D checks, ~D failures~%" *checks* *failures*)
   *failures*)

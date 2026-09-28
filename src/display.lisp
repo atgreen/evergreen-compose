@@ -12,6 +12,38 @@
 ;;; replayed -- which is how the tests below compare renders without a GPU, and
 ;;; how the same frame can go to a software surface here and to GLES on a phone.
 
+(defgeneric render-kind (kind view frame)
+  (:documentation "The display operations a VIEW of KIND contributes at FRAME,
+as a list, painted before its children.
+
+Specialised on the kind KEYWORD for the same reason as MEASURE-KIND: a new
+primitive is added from outside, and the tree stays data. Returning a LIST
+rather than writing to a stream keeps a method a pure function of its node,
+which is what makes a frame comparable between renders.")
+  (:method (kind view frame)
+    (declare (ignore view frame))
+    (error "No RENDER-KIND method for ~S." kind)))
+
+(defmethod render-kind ((kind (eql :box)) view frame)
+  (let ((fill (view-prop view :fill)))
+    (when fill
+      (list (list :fill-rect (rect-x frame) (rect-y frame)
+                  (rect-width frame) (rect-height frame) (colour fill))))))
+
+(defmethod render-kind ((kind (eql :label)) view frame)
+  (list (list :glyphs (rect-x frame) (rect-y frame)
+              (view-prop view :text "") (view-prop view :size 1)
+              (colour (view-prop view :colour +black+)))))
+
+(defun %background-ops (view frame)
+  (let ((background (view-prop view :background)))
+    (when background
+      (list (list :fill-rect (rect-x frame) (rect-y frame)
+                  (rect-width frame) (rect-height frame) (colour background))))))
+
+(defmethod render-kind ((kind (eql :row)) view frame) (%background-ops view frame))
+(defmethod render-kind ((kind (eql :column)) view frame) (%background-ops view frame))
+
 (defun render (laid-out-tree)
   "The display list for a laid-out tree, as a list of operations."
   (let ((ops '()))
@@ -20,24 +52,7 @@
                (let* ((view (laid-out-view node))
                       (frame (laid-out-frame node))
                       (kind (view-kind view)))
-                 (case kind
-                   (:box (let ((fill (view-prop view :fill)))
-                          (when fill (emit (list :fill-rect
-                                                 (rect-x frame) (rect-y frame)
-                                                 (rect-width frame) (rect-height frame)
-                                                 (colour fill))))))
-                   (:label (emit (list :glyphs
-                                      (rect-x frame) (rect-y frame)
-                                      (view-prop view :text "")
-                                      (view-prop view :size 1)
-                                      (colour (view-prop view :colour +black+)))))
-                   ((:row :column)
-                    (let ((background (view-prop view :background)))
-                      (when background
-                        (emit (list :fill-rect
-                                    (rect-x frame) (rect-y frame)
-                                    (rect-width frame) (rect-height frame)
-                                    (colour background)))))))
+                 (mapc #'emit (render-kind kind view frame))
                  ;; Children after the parent's own background, so a container
                  ;; paints beneath what it contains.
                  (mapc #'walk (laid-out-children node)))))

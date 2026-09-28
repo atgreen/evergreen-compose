@@ -13,7 +13,7 @@
    :measure :layout :laid-out :laid-out-view :laid-out-frame :laid-out-children
    :constraints :unbounded :tight
    ;; display list
-   :render :flatten-to-rects :colour
+   :render :flatten-to-rects :colour :measure-kind :render-kind
    ;; backends
    :surface :make-surface :surface-width :surface-height :surface-pixels
    :draw :clear :pixel-at :write-ppm :ascii-art
