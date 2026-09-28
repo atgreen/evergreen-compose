@@ -59,3 +59,18 @@ quite arrives would keep the screen dirty forever."
   "Smooth 0..1 into 0..1 with zero velocity at both ends (smoothstep)."
   (let ((f (max 0 (min 1 fraction))))
     (* f f (- 3 (* 2 f)))))
+
+;;; Whether a frame is owed at all. This lives beside the clock rather than in
+;;; the Android host because it is not an Android idea: anything that drives
+;;; frames needs it, and so does anything that CHANGES without a touch to
+;;; explain it -- a timer, a reply, a sensor, an input method committing a word.
+
+(defvar *dirty* t
+  "True when the interface may have changed and owes a frame.
+
+An application sets this with INVALIDATE when something the view reads has
+changed for a reason the host cannot see. Touches set it automatically.")
+
+(defun invalidate ()
+  "Ask for one more frame. Cheap and idempotent."
+  (setf *dirty* t))

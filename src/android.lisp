@@ -174,17 +174,6 @@ the widget the press armed -- which is what lets a finger slide off to cancel."
                               (host-dragging host) nil)))))))
     acted))
 
-(defvar *dirty* t
-  "True when the interface may have changed and owes a frame.
-
-An application sets this with INVALIDATE when something the view reads has
-changed for a reason the host cannot see -- a timer, a reply, a sensor. Touches
-set it automatically.")
-
-(defun invalidate ()
-  "Ask for one more frame. Cheap and idempotent."
-  (setf *dirty* t))
-
 (defun run-android-app (window view-function &key (design-width 360) (design-height 747))
   "Run an application until its window goes away.
 

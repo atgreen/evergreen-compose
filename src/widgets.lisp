@@ -181,3 +181,42 @@ itself offscreen. The framework does not care where the pixels came from."
   `(image (:source ,source
            ,@(when width (list :width width))
            ,@(when height (list :height height)))))
+
+(defun text-field (value &key id on-change placeholder (size 3) grow)
+  "A tappable box showing VALUE, with a caret while it holds the keyboard.
+
+Told, not remembered, like everything else here: the caller owns the string and
+is handed a new one through ON-CHANGE. What the widget does NOT leave to the
+caller is which field the keyboard is bound to, because that is a property of
+the keyboard, and there is only one keyboard.
+
+Tapping it calls FOCUS-TEXT-FIELD, which seeds the platform editor with VALUE
+and raises the keyboard. The application's loop then calls PUMP-TEXT-INPUT once
+a frame, which is what turns what the input method did into ON-CHANGE. That
+indirection is the whole reason the editor is not consulted here: a soft keyboard
+commits whole words, corrects what it committed a moment ago, and hands back
+characters nobody typed, so the editor is the truth and this only draws it."
+  (let* ((focused (and id (eq id (text-focus-id))))
+         (empty (or (null value) (string= value "")))
+         (pad (max 6 (round size 2)))
+         (press (lambda (node)
+                  (declare (ignore node))
+                  (focus-text-field id value on-change))))
+    `(box (:padding ,pad
+           :radius ,(theme-value :radius 0)
+           :background ,(theme :disabled)
+           :id ,id
+           ,@(when grow (list :grow grow))
+           ,@(when id (list :on-press press)))
+       (row (:gap 1 :cross-align :center)
+         (label (:text ,(if empty (or placeholder "") value)
+                 :size ,size
+                 :colour ,(if empty (theme :muted) (theme :ink))))
+         ,@(when focused
+             ;; A caret is a filled rectangle the height of a line, which is why
+             ;; this needs no primitive of its own. Measured from "M" rather than
+             ;; from the field's own text, so an empty field still has one and it
+             ;; does not change height as the text does.
+             (list `(box (:width 2
+                          :height ,(nth-value 1 (text-extent "M" size))
+                          :fill ,(theme :accent)))))))))

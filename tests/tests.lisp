@@ -641,12 +641,53 @@ identity, so a test that wants to compare two rectangles must compare numbers."
     (check "and a touch lands on the topmost of them"
            :over (node-prop hit :id))))
 
+(defun test-text-field ()
+  (format t "text field~%")
+  ;; A stub platform editor: enough to drive focus and the pump with no phone.
+  (let* ((editor "") (shown nil) (log '())
+         (*text-input* (list :show (lambda () (setf shown t) (push :show log))
+                             :hide (lambda () (setf shown nil) (push :hide log))
+                             :read (lambda () editor)
+                             :write (lambda (text) (setf editor text) (push :write log))))
+         (*text-focus* nil)
+         (changes '()))
+    (flet ((field (value) (text-field value :id :name :placeholder "Name"
+                                            :on-change (lambda (text) (push text changes))))
+           ;; (box () (row () (label ...) [caret])) -- the row is the box's only
+           ;; child, and the label is the row's first.
+           (line (field) (first (view-children field))))
+      (check "an empty field shows its placeholder"
+             "Name" (view-prop (first (view-children (line (field "")))) :text))
+      (check "a filled one shows its text"
+             "Ada" (view-prop (first (view-children (line (field "Ada")))) :text))
+      (check "and unfocused it has no caret"
+             1 (length (view-children (line (field "")))))
+      ;; Tapping it binds the keyboard: the editor is SEEDED, then raised.
+      (dispatch (layout (field "Ada") 0 0) 4 4 :on-press)
+      (check "tapping focuses the field" :name (text-focus-id))
+      (check "the editor is seeded before it is shown" '(:show :write) log)
+      (check "seeded with the field's own value" "Ada" editor)
+      (check-true "and the keyboard is up" shown)
+      (check "focused, it grows a caret"
+             2 (length (view-children (line (field "Ada")))))
+      ;; The input method is the truth; PUMP is what turns its edits into ours.
+      (check "an unchanged editor fires nothing" nil (pump-text-input))
+      (setf editor "Ada L")
+      (check "a changed one reports the new text" "Ada L" (pump-text-input))
+      (check "and calls ON-CHANGE with it" '("Ada L") changes)
+      (check "reading it twice does not fire twice" nil (pump-text-input))
+      (blur-text-field)
+      (check "blurring unbinds the keyboard" nil (text-focus-id))
+      (check-true "and puts it away" (not shown))
+      (setf editor "typed after blur")
+      (check "a blurred field ignores the editor" nil (pump-text-input)))))
+
 (defun run-tests ()
   (setf *failures* 0 *checks* 0)
   (test-geometry) (test-paint) (test-font)
   (test-layout) (test-render) (test-raster)
   (test-input) (test-widgets) (test-constraints) (test-backend) (test-extension)
-  (test-utf8) (test-stacking)
+  (test-utf8) (test-stacking) (test-text-field)
   (test-composites) (test-corners-and-clipping) (test-scroll) (test-clock) (test-virtual-list) (test-image)
   (format t "~%~D checks, ~D failures~%" *checks* *failures*)
   *failures*)

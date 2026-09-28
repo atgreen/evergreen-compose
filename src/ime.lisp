@@ -301,3 +301,13 @@ becomes true, and the IME may commit text rather than synthesising keys."
   (jni-call-boolean (input-method-manager)
                     (java-method +imm-class+ "isAcceptingText" "()Z")
                     (jni-args)))
+
+;;; Loading this file IS the installation: it is the Android half of
+;;; src/text-input.lisp, and there is nothing else for it to be.
+(setf *text-input*
+      (list :show (lambda () (start-text-input))
+            :hide (lambda () (hide-keyboard))
+            :read (lambda () (editor-text))
+            ;; Attaching first, because seeding the editor is the point of the
+            ;; call and there is nothing to seed until one exists.
+            :write (lambda (text) (attach-editor) (set-editor-text text))))
