@@ -27,6 +27,7 @@
    :hit-test :dispatch :node-prop :scale-point
    ;; widgets
    :*theme* :theme :button :toggle :spacer :text
+   :vstack :hstack :progress :switch :labelled
    ;; JNI, and the Canvas backend over Android's own Skia
    :jni-start :jni-check :jni-find-class :jni-method :jni-string
    :canvas-open :canvas-draw :canvas-pixels :canvas-release-pixels

@@ -46,10 +46,14 @@ passes it in, which is what lets the whole interface stay a function of a model.
        (label (:text ,label :size ,size
                :colour ,(if disabled (theme :muted) (theme :ink)))))))
 
-(defun spacer (&key (width 0) (height 0))
+(defun spacer (&key (width 0) (height 0) grow)
   "Empty space. A box with no :fill emits nothing to draw, so this costs a node
-in the tree and nothing at all in the display list."
-  `(box (:width ,width :height ,height)))
+in the tree and nothing at all in the display list.
+
+With :GROW it becomes the flexible spacer, which is the more useful form: it is
+how \"push the rest to the far end\" is written without an alignment property on
+every container."
+  `(box (:width ,width :height ,height ,@(when grow (list :grow grow)))))
 
 (defun text (string &key (size 2) (colour nil))
   `(label (:text ,string :size ,size :colour ,(or colour (theme :ink)))))
@@ -58,3 +62,49 @@ in the tree and nothing at all in the display list."
   "A button whose accent shows its state. ON is told, like PRESSED."
   (button (format nil "~A: ~:[off~;on~]" label on)
           :id id :on-press on-press :pressed on :size size :grow grow))
+
+;;;; ── composites: everything below is a function returning primitives ───
+;;;;
+;;;; None of these adds a MEASURE-KIND or a RENDER-KIND method, touches a
+;;;; backend, or is known to the framework in any way. That is the test of
+;;;; whether a proposed widget is cheap: if it can be written as a function
+;;;; returning existing primitives, it costs a DEFUN. If it cannot, it is
+;;;; platform work wearing a widget's name.
+
+(defun vstack (&rest children)
+  "Alias for a column, for callers who prefer the stack vocabulary."
+  `(column (:gap 0) ,@children))
+
+(defun hstack (&rest children)
+  `(row (:gap 0) ,@children))
+
+(defun progress (value &key (width 120) (height 8) colour background)
+  "A bar filled to VALUE, which is 0 to 1.
+
+Two nested boxes. The track is a fixed box and the fill is another sized to a
+fraction of it -- which needs no new primitive, because the fraction is computed
+when the tree is BUILT. A value clamped here rather than at the caller means a
+bad model cannot draw outside its own track."
+  (let ((fraction (max 0 (min 1 value))))
+    `(row (:width ,width :height ,height
+           :background ,(or background (theme :disabled)))
+       (box (:width ,(round (* width fraction)) :height ,height
+             :fill ,(or colour (theme :accent)))))))
+
+(defun switch (&key id on on-change (width 52) (height 28))
+  "A track with a knob at one end. ON is told, like every other widget state.
+
+The knob is placed by a SPACER that grows on one side: :GROW is what expresses
+\"push this to the far end\", so the two positions are one tree with a flag
+rather than two trees."
+  (let ((knob (- height 8)))
+    `(row (:width ,width :height ,height :cross-align :center :padding 4
+           :background ,(if on (theme :accent) (theme :disabled))
+           :id ,id ,@(when on-change (list :on-press on-change)))
+       ,@(when on (list (spacer :grow 1)))
+       (box (:width ,knob :height ,knob :fill ,(theme :ink)))
+       ,@(unless on (list (spacer :grow 1))))))
+
+(defun labelled (text-string child &key (gap 6) (size 2))
+  "CHILD with a caption above it."
+  `(column (:gap ,gap) ,(text text-string :size size :colour (theme :muted)) ,child))

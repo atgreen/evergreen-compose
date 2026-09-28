@@ -330,10 +330,40 @@
          (handler-case (progn (measure '(nonesuch ())) nil)
            (error () t))))
 
+;;; ── composites cost a DEFUN ───────────────────────────────────────────
+(defun test-composites ()
+  (format t "composites~%")
+  ;; A progress bar is two boxes and some arithmetic. No primitive, no backend.
+  (let* ((placed (layout (progress 0.25 :width 100 :height 10) 0 0))
+         (fill (first (laid-out-children placed))))
+    (check "progress fills its fraction" 25 (rect-width (laid-out-frame fill)))
+    (check "and the track is the full width" 100 (rect-width (laid-out-frame placed))))
+  (check "progress clamps above one" 100
+         (rect-width (laid-out-frame (first (laid-out-children
+                                             (layout (progress 5 :width 100) 0 0))))))
+  (check "and below zero" 0
+         (rect-width (laid-out-frame (first (laid-out-children
+                                             (layout (progress -3 :width 100) 0 0))))))
+  ;; A switch is a knob pushed to one end by a growing spacer: one tree, a flag.
+  (let* ((off (layout (switch :id :s :on nil) 0 0))
+         (on (layout (switch :id :s :on t) 0 0))
+         (knob-x (lambda (placed)
+                   (let ((kids (laid-out-children placed)))
+                     (rect-x (laid-out-frame
+                              (find-if (lambda (k) (view-prop (laid-out-view k) :fill))
+                                       kids)))))))
+    (check-true "the knob moves when on"
+                (> (funcall knob-x on) (funcall knob-x off))))
+  ;; A flexible spacer is what expresses "push to the far end".
+  (let* ((tree `(row (:width 100) ,(spacer :grow 1) (box (:width 20 :height 5 :fill "#fff"))))
+         (box (second (laid-out-children (layout tree 0 0)))))
+    (check "a growing spacer pushes to the end" 80 (rect-x (laid-out-frame box)))))
+
 (defun run-tests ()
   (setf *failures* 0 *checks* 0)
   (test-geometry) (test-paint) (test-font)
   (test-layout) (test-render) (test-raster)
   (test-input) (test-widgets) (test-constraints) (test-backend) (test-extension)
+  (test-composites)
   (format t "~%~D checks, ~D failures~%" *checks* *failures*)
   *failures*)
