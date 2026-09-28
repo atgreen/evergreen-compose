@@ -20,8 +20,8 @@
 
 (defparameter *theme*
   '(:surface "#101820" :ink "#ffffff" :muted "#a0b0c0"
-    :accent "#4080ff" :accent-pressed "#2a5fcf" :disabled "#30404f"
-    :radius 10)
+    :raised "#1b2735" :accent "#4080ff" :accent-pressed "#2a5fcf" :disabled "#30404f"
+    :radius 10 :elevation 2)
   "What widgets read for their appearance, as a plist so an application can
 rebind or replace it. Non-colour entries live here too: a corner radius is a
 theme decision, not a per-call one.")
@@ -220,3 +220,18 @@ characters nobody typed, so the editor is the truth and this only draws it."
              (list `(box (:width 2
                           :height ,(nth-value 1 (text-extent "M" size))
                           :fill ,(theme :accent)))))))))
+
+(defun card (children &key (padding 12) (gap 8) elevation background radius grow id on-press)
+  "A raised surface with content in it.
+
+The whole widget, which is rather the point. Compose's Card is six lines
+delegating to Surface and eight hundred more of variants and design tokens;
+this is the six, and a caller who wants the variants writes them."
+  `(column (:padding ,padding :gap ,gap
+            :radius ,(or radius (theme-value :radius 0))
+            :background ,(or background (theme :raised))
+            :elevation ,(or elevation (theme-value :elevation 0))
+            ,@(when grow (list :grow grow))
+            ,@(when id (list :id id))
+            ,@(when on-press (list :on-press on-press)))
+     ,@children))

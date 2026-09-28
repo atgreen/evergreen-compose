@@ -26,8 +26,10 @@
   width height
   lock-pixels unlock-pixels bitmap-info info-buffer
   create-bitmap bitmap-class argb-8888 draw-bitmap src-rect dst-rect rect-set rectf-set
+  set-mask-filter blur-class blur-init blur-normal
   (strings (make-hash-table :test #'equal))
-  (images (make-hash-table :test #'eq)))
+  (images (make-hash-table :test #'eq))
+  (blurs (make-hash-table :test #'eql)))
 
 (defun android-colour (colour)
   "A Bliss #xRRGGBBAA colour as Android's ARGB integer.
@@ -104,7 +106,19 @@ int Java expects rather than a positive bignum."
                    :rect-set (jni-method (jni-find-class "android/graphics/Rect")
                                          "set" "(IIII)V")
                    :rectf-set (jni-method (jni-find-class "android/graphics/RectF")
-                                          "set" "(FFFF)V"))))
+                                          "set" "(FFFF)V")
+                   ;; Skia has a real Gaussian, so a raised surface gets a real
+                   ;; shadow here rather than the rings SHADOW-RECTS reduces one
+                   ;; to for backends that can only fill rectangles.
+                   :set-mask-filter (jni-method paint-class "setMaskFilter"
+                                                "(Landroid/graphics/MaskFilter;)Landroid/graphics/MaskFilter;")
+                   :blur-class (jni-find-class "android/graphics/BlurMaskFilter")
+                   :blur-init (jni-method (jni-find-class "android/graphics/BlurMaskFilter")
+                                          "<init>"
+                                          "(FLandroid/graphics/BlurMaskFilter$Blur;)V")
+                   :blur-normal (jni-static-object-field
+                                 (jni-find-class "android/graphics/BlurMaskFilter$Blur")
+                                 "NORMAL" "Landroid/graphics/BlurMaskFilter$Blur;"))))
       ;; Antialiasing on, once. It is a Paint flag, not a per-call argument, and
       ;; it is the reason for using Skia at all.
       (jni-call-void paint (canvas-set-anti-alias canvas) (jni-args (list :int 1)))
@@ -113,6 +127,18 @@ int Java expects rather than a positive bignum."
       ;; of opening a canvas rather than something a caller can forget.
       (canvas-install-metrics canvas)
       canvas)))
+
+(defun canvas-blur (canvas radius)
+  "A BlurMaskFilter of RADIUS, made once per radius and kept.
+
+A UI uses two or three elevations, so this table never holds more than that --
+and building one per shadow per frame would cost an allocation and a constructor
+call, at ~35us each, to say a number that did not change."
+  (or (gethash radius (canvas-blurs canvas))
+      (setf (gethash radius (canvas-blurs canvas))
+            (jni-global (jni-new (canvas-blur-class canvas) (canvas-blur-init canvas)
+                                 (jni-args (list :float (max 1 radius))
+                                           (list :object (canvas-blur-normal canvas))))))))
 
 (defun canvas-install-metrics (canvas)
   "Make TEXT-EXTENT report what Skia will actually draw.
@@ -223,6 +249,22 @@ drawText call, with real shaping and antialiasing."
                                     (list :float (+ x w)) (list :float (+ y h))
                                     (list :float radius) (list :float radius)
                                     (list :object paint)))))
+        (:shadow
+         (destructuring-bind (x y w h radius blur dy colour) (rest op)
+           (jni-call-void paint (canvas-set-colour canvas)
+                          (jni-args (list :int (android-colour colour))))
+           ;; setMaskFilter RETURNS the previous filter, so both calls make a
+           ;; local reference. On a thread attached with AttachCurrentThread
+           ;; nothing ever pops those, and this runs per shadow per frame.
+           (jni-release (jni-call-object paint (canvas-set-mask-filter canvas)
+                                         (jni-args (list :object (canvas-blur canvas blur)))))
+           (jni-call-void object (canvas-draw-round-rect canvas)
+                          (jni-args (list :float x) (list :float (+ y dy))
+                                    (list :float (+ x w)) (list :float (+ y dy h))
+                                    (list :float radius) (list :float radius)
+                                    (list :object paint)))
+           (jni-release (jni-call-object paint (canvas-set-mask-filter canvas)
+                                         (jni-args (list :object (torcl-ffi:null-pointer)))))))
         (:image
          (destructuring-bind (x y w h source) (rest op)
            (let ((bitmap (canvas-image canvas source)))

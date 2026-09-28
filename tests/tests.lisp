@@ -682,12 +682,53 @@ identity, so a test that wants to compare two rectangles must compare numbers."
       (setf editor "typed after blur")
       (check "a blurred field ignores the editor" nil (pump-text-input)))))
 
+(defun test-elevation ()
+  (format t "elevation~%")
+  (let ((ops (render (layout '(box (:width 10 :height 10 :fill "#ffffff" :elevation 2)) 2 2))))
+    (check "a raised surface casts before it paints"
+           '(:shadow :fill-rect) (mapcar #'first ops))
+    (destructuring-bind (x y w h radius blur dy colour) (rest (first ops))
+      (declare (ignore colour))
+      (check "the shadow is cast by the surface's own rectangle" '(2 2 10 10) (list x y w h))
+      (check "square, because the surface is" 0 radius)
+      ;; Blur and offset come from the elevation, in one place: twice for the
+      ;; blur, once for the drop, which is what reads as lit from above.
+      (check "blur is twice the elevation" 4 blur)
+      (check "and the drop is the elevation" 2 dy)))
+  (check "an unraised surface casts nothing"
+         '(:fill-rect)
+         (mapcar #'first (render (layout '(box (:width 10 :height 10 :fill "#fff")) 0 0))))
+  ;; A shadow needs something to cast it.
+  (check "and neither does a raised one with no fill"
+         '()
+         (mapcar #'first (render (layout '(box (:width 10 :height 10 :elevation 4)) 0 0))))
+  ;; Every backend that fills rectangles gets a shadow, GLES included.
+  (let ((rects (flatten-to-rects (render (layout '(box (:width 8 :height 8
+                                                        :fill "#ffffff" :elevation 2))
+                                                 4 4)))))
+    (check-true "a shadow reduces to plain rectangles" (> (length rects) 1))
+    (check-true "which reach above and left of the surface"
+                (some (lambda (r) (< (first r) 4)) rects)))
+  ;; And it actually darkens pixels, below the surface rather than above it.
+  (let ((target (make-surface 24 24 +white+)))
+    (draw target (render (layout '(box (:width 8 :height 8 :fill "#ffffff" :elevation 3))
+                                 8 8)))
+    (check-true "the shadow darkens below the surface"
+                (< (colour-red (pixel-at target 12 18)) 255))
+    (check-true "and not above it"
+                (= (colour-red (pixel-at target 12 2)) 255))
+    (check "while the surface itself stays its own colour"
+           +white+ (pixel-at target 12 12)))
+  ;; CARD is the payoff: a composite, with no new primitive under it.
+  (let ((ops (render (layout (card (list '(box (:width 4 :height 4 :fill "#f00")))) 0 0))))
+    (check "a card is raised" :shadow (first (first ops)))))
+
 (defun run-tests ()
   (setf *failures* 0 *checks* 0)
   (test-geometry) (test-paint) (test-font)
   (test-layout) (test-render) (test-raster)
   (test-input) (test-widgets) (test-constraints) (test-backend) (test-extension)
-  (test-utf8) (test-stacking) (test-text-field)
+  (test-utf8) (test-stacking) (test-text-field) (test-elevation)
   (test-composites) (test-corners-and-clipping) (test-scroll) (test-clock) (test-virtual-list) (test-image)
   (format t "~%~D checks, ~D failures~%" *checks* *failures*)
   *failures*)

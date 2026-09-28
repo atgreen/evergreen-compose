@@ -35,16 +35,62 @@ its edge at that height, which is the circle equation and nothing cleverer."
         (when (< (* 2 inset) width)
           (push (list (+ x inset) (+ y row) (- width (* 2 inset)) 1) spans))))))
 
+(defparameter *shadow-colour* (rgba 0 0 0 110)
+  "What a raised surface casts. A view may override it with :SHADOW-COLOUR.
+
+Here rather than in the theme because the display list must not depend on the
+widget vocabulary -- a backend receives operations, not decisions.")
+
+(defun shadow-op (view frame)
+  "The :SHADOW operation for a raised surface, or NIL when it is not raised.
+
+Material measures elevation in dp and derives the blur and the offset from it.
+Same idea, constants in one place: twice the elevation of blur, and the
+elevation itself of downward offset, which is what makes a raised thing look
+lit from above."
+  (let ((elevation (view-prop view :elevation 0)))
+    (when (plusp elevation)
+      (list :shadow (rect-x frame) (rect-y frame) (rect-width frame) (rect-height frame)
+            (view-prop view :radius 0) (* 2 elevation) elevation
+            (colour (view-prop view :shadow-colour *shadow-colour*))))))
+
+(defun shadow-rects (x y width height radius blur dy colour)
+  "A shadow as plain rectangles: concentric rings of a low-alpha colour.
+
+There is no blur here and none coming. A backend that can only fill rectangles
+can still show that something is raised, and a real Gaussian would be the most
+expensive thing in this framework by a wide margin. Under source-over the rings
+accumulate into a falloff that reads as a shadow at the sizes a UI uses, which
+is all this has to do. A backend with a real blur -- Canvas has one -- should
+draw :SHADOW itself and never come through here."
+  (let* ((rings (max 1 (min blur 6)))
+         (ink (rgba (colour-red colour) (colour-green colour) (colour-blue colour)
+                    (max 1 (floor (colour-alpha colour) rings))))
+         (rects '()))
+    (loop for ring from rings downto 1
+          for inset = (round (* blur ring) rings)
+          do (dolist (span (round-rect-spans (- x inset) (+ y dy (- inset))
+                                             (+ width inset inset) (+ height inset inset)
+                                             (+ radius inset)))
+               (push (append span (list ink)) rects)))
+    (nreverse rects)))
+
 (defun %box-ops (view frame)
-  "The fill for a box or a container background, rounded when asked."
+  "The fill for a box or a container background, rounded when asked, over the
+shadow it casts when it is raised.
+
+A shadow needs something to cast it: a view with :ELEVATION and no fill is
+transparent, and a shadow under nothing is a bug rather than a feature."
   (let ((fill (or (view-prop view :fill) (view-prop view :background)))
         (radius (view-prop view :radius 0)))
-    (when fill
+    (append
+     (when fill (let ((shadow (shadow-op view frame))) (when shadow (list shadow))))
+     (when fill
       (list (if (plusp radius)
                 (list :fill-round-rect (rect-x frame) (rect-y frame)
                       (rect-width frame) (rect-height frame) radius (colour fill))
                 (list :fill-rect (rect-x frame) (rect-y frame)
-                      (rect-width frame) (rect-height frame) (colour fill)))))))
+                      (rect-width frame) (rect-height frame) (colour fill))))))))
 
 (defmethod measure-kind ((kind (eql :image)) view constraints)
   (declare (ignore constraints))
@@ -138,6 +184,8 @@ cache. The GLES backend is six entry points because of this."
              (dolist (span (round-rect-spans x y w h radius))
                (apply #'clipped (append span (list colour))))))
           (:fill-rect (apply #'clipped (rest op)))
+          (:shadow (dolist (rect (apply #'shadow-rects (rest op)))
+                     (apply #'clipped rect)))
           ;; An image is the one operation that does NOT reduce to rectangles.
           ;; A backend which only fills rectangles cannot draw one, and silently
           ;; dropping it would leave a hole nobody could account for.

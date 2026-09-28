@@ -14,6 +14,7 @@
    :constraints :unbounded :tight
    ;; display list
    :render :flatten-to-rects :colour :measure-kind :render-kind :round-rect-spans
+   :shadow-rects :shadow-op :*shadow-colour*
    ;; backends
    :surface :make-surface :surface-width :surface-height :surface-pixels
    :draw :clear :pixel-at :write-ppm :ascii-art :draw-image :surface-rect
@@ -31,7 +32,7 @@
    ;; widgets
    :*theme* :theme :theme-value :button :toggle :spacer :text
    :vstack :hstack :progress :switch :labelled :scroll :virtual-list :visible-range :image
-   :text-field
+   :text-field :card
    ;; which field the keyboard is bound to
    :*text-input* :focus-text-field :blur-text-field :pump-text-input :text-focus-id
    ;; JNI, and the Canvas backend over Android's own Skia

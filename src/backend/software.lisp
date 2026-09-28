@@ -155,6 +155,12 @@ and then filling each is what made this slow in the first place."
            (dolist (span (round-rect-spans x y w h radius))
              (destructuring-bind (sx sy sw sh) span
                (fill-clipped surface sx sy sw sh colour (first clips))))))
+        ;; Rings, not a Gaussian -- see SHADOW-RECTS. This rasterizer exists so
+        ;; layout and rendering can be tested with no GPU and no phone, and a
+        ;; real blur would be the most expensive thing in it by a wide margin.
+        (:shadow (dolist (rect (apply #'shadow-rects (rest op)))
+                   (destructuring-bind (sx sy sw sh ink) rect
+                     (fill-clipped surface sx sy sw sh ink (first clips)))))
         (:image (destructuring-bind (x y w h source) (rest op)
                   (draw-image surface x y w h source (first clips))))
         (:glyphs (destructuring-bind (x y text scale colour) (rest op)
