@@ -62,7 +62,8 @@ object under the same constraints has the same size by construction.")
 (defun measure (view &optional (constraints (unbounded)))
   "The size VIEW takes under CONSTRAINTS, as width and height."
   (check-view view)
-  (let* ((cache (or *measured* (make-hash-table :test #'eq)))
+  (let* ((*stacked* (or *stacked* (make-hash-table :test #'eq)))
+         (cache (or *measured* (make-hash-table :test #'eq)))
          (key (list (constraints-min-width constraints)
                     (constraints-max-width constraints)
                     (constraints-min-height constraints)
@@ -120,9 +121,36 @@ primitives. This is only for a genuinely NEW primitive.")
                       (constraints-min-height constraints)
                       (constraints-max-height constraints)))))
 
+(defvar *stacked* nil
+  "Per-pass memo for STACK-METRICS, keyed like *MEASURED*.
+
+A container's metrics are computed twice -- once when it is measured and again
+when its children are placed -- and each computation walks every child. Caching
+the whole result, not just the child sizes, is what makes a container cost one
+distribution pass per layout instead of two.")
+
 (defun stack-metrics (view constraints)
+  "Memoised wrapper: see %STACK-METRICS."
+  (let* ((cache (or *stacked* (make-hash-table :test #'eq)))
+         (key (list (constraints-min-width constraints)
+                    (constraints-max-width constraints)
+                    (constraints-min-height constraints)
+                    (constraints-max-height constraints)))
+         (hit (assoc key (gethash view cache) :test #'equal)))
+    (if hit
+        (values-list (cdr hit))
+        (let ((computed (multiple-value-list (%stack-metrics view constraints))))
+          (setf (gethash view cache) (cons (cons key computed) (gethash view cache)))
+          (values-list computed)))))
+
+(defun %stack-metrics (view constraints)
   "The content size of a row or column, as main and cross, including padding.
-Also returns the per-child sizes, so placement need not re-derive them."
+
+Also returns, per child, its size AND THE CONSTRAINTS IT WAS MEASURED UNDER.
+Placement needs the constraints, not just the size: laying a child out under
+anything else is a different memo key, so its whole subtree is measured again,
+and the cost compounds with depth. Handing the constraints back makes the
+placement pass a cache hit at every level and the whole walk linear."
   (multiple-value-bind (top right bottom left) (padding-of view)
     (let* ((row (row-p view))
            (gap (view-prop view :gap 0))
@@ -153,11 +181,11 @@ Also returns the per-child sizes, so placement need not re-derive them."
             for grow in grows
             for i from 0
             when (zerop grow)
-              do (setf (nth i sizes)
-                       (multiple-value-list
-                        (measure child (if row
-                                           (constraints 0 room 0 cross-room)
-                                           (constraints 0 cross-room 0 room))))))
+              do (let ((c (if row
+                              (constraints 0 room 0 cross-room)
+                              (constraints 0 cross-room 0 room))))
+                   (setf (nth i sizes)
+                         (multiple-value-bind (w h) (measure child c) (list w h c)))))
       (let* ((fixed (loop for size in sizes when size
                             sum (main-of row (first size) (second size))))
              (leftover (when room (max 0 (- room fixed gaps)))))
@@ -171,17 +199,16 @@ Also returns the per-child sizes, so placement need not re-derive them."
               for grow in grows
               for i from 0
               when (plusp grow)
-                do (let ((share (if (and leftover (plusp shares))
-                                    (floor (* remaining grow) shares)
-                                    nil)))
+                do (let* ((share (if (and leftover (plusp shares))
+                                     (floor (* remaining grow) shares)
+                                     nil))
+                          (c (cond ((null share)
+                                    (if row (constraints 0 room 0 cross-room)
+                                        (constraints 0 cross-room 0 room)))
+                                   (row (constraints share share 0 cross-room))
+                                   (t (constraints 0 cross-room share share)))))
                      (setf (nth i sizes)
-                           (multiple-value-list
-                            (measure child
-                                     (cond ((null share)
-                                            (if row (constraints 0 room 0 cross-room)
-                                                (constraints 0 cross-room 0 room)))
-                                           (row (constraints share share 0 cross-room))
-                                           (t (constraints 0 cross-room share share))))))))
+                           (multiple-value-bind (w h) (measure child c) (list w h c)))))
         (let ((main (+ main-pad gaps
                        (loop for size in sizes
                              sum (main-of row (first size) (second size)))))
@@ -206,7 +233,8 @@ Also returns the per-child sizes, so placement need not re-derive them."
 (defun layout (view x y &optional (constraints (unbounded)))
   "Place VIEW at (X, Y) under CONSTRAINTS; return a tree of absolute frames."
   (check-view view)
-  (let ((*measured* (or *measured* (make-hash-table :test #'eq))))
+  (let ((*measured* (or *measured* (make-hash-table :test #'eq)))
+        (*stacked* (or *stacked* (make-hash-table :test #'eq))))
     (%layout view x y constraints)))
 
 (defun %layout (view x y constraints)
@@ -245,10 +273,10 @@ Also returns the per-child sizes, so placement need not re-derive them."
                                                  (max 0 (- inner-cross child-cross)))))
                               (cx (if row cursor cross-start))
                               (cy (if row cross-start cursor)))
-                         (push (%layout child cx cy
-                                        (if row
-                                            (tight child-main child-cross)
-                                            (tight child-cross child-main)))
-                               children)
+                         ;; The constraints the child was MEASURED under, so its
+                         ;; MEASURE below is a memo hit and its subtree is not
+                         ;; walked a second time. Passing fresh tight constraints
+                         ;; here is what made layout quadratic in depth.
+                         (push (%layout child cx cy (third size)) children)
                          (incf cursor (+ child-main gap)))))))
         (laid-out view frame (nreverse children))))))
