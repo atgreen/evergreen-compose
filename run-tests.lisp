@@ -1,0 +1,5 @@
+(load (merge-pathnames "load.lisp" *load-truename*))
+(load (merge-pathnames "tests/tests.lisp" *load-truename*))
+(if (zerop (bliss::run-tests))
+    (format t "BLISS-TESTS-PASS~%")
+    (format t "BLISS-TESTS-FAIL~%"))
