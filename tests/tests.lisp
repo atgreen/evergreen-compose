@@ -497,7 +497,7 @@
   (let ((built '()))
     (let ((view (virtual-list 100000 (lambda (i) (push i built)
                                        `(box (:width 10 :height 40 :fill "#ff0000")))
-                              :id :l :offset 0 :viewport 200 :item-height 40)))
+                              :id :l :offset 0 :viewport 200 :item-size 40)))
       (check-true "a 100000-row list builds a handful" (< (length built) 20))
       (check-true "and they are the ones on screen" (every (lambda (i) (< i 20)) built))
       ;; Content height stays honest, so scrolling clamps against the real extent.
@@ -509,7 +509,7 @@
   ;; Scrolling builds a different window.
   (let ((built '()))
     (virtual-list 1000 (lambda (i) (push i built) `(box (:width 10 :height 40)))
-                  :id :l :offset 4000 :viewport 200 :item-height 40)
+                  :id :l :offset 4000 :viewport 200 :item-size 40)
     (check-true "a scrolled list builds the scrolled rows"
                 (and (every (lambda (i) (< 90 i 115)) built) built))))
 
@@ -811,12 +811,48 @@ identity, so a test that wants to compare two rectangles must compare numbers."
   (check "an unknown icon says which ones there are"
          t (handler-case (progn (icon :nonesuch) nil) (error () t))))
 
+(defun test-horizontal-list ()
+  (format t "horizontal list~%")
+  ;; A carousel: the same virtualisation, turned ninety degrees.
+  (let* ((built '())
+         (view (virtual-list 100000 (lambda (i) (push i built) `(box (:width 40 :height 30)))
+                             :axis :horizontal :id :c :offset 0
+                             :viewport 200 :item-size 40 :height 30)))
+    (check "a horizontal list is a row" :row (view-kind view))
+    (check "it offsets along x" 0 (view-prop view :offset-x))
+    (check "and not along y" nil (view-prop view :offset-y))
+    ;; 200 wide / 40 each = 5 on screen, plus 2 overscan.
+    (check "only the items on screen are built, plus overscan"
+           '(0 1 2 3 4 5 6) (sort (copy-list built) #'<))
+    (let ((kids (mapcar #'box-frame (laid-out-children (layout view 0 0)))))
+      (check "the leading gap has no width at offset zero" 0 (third (first kids)))
+      (check "and the items run left to right"
+             '(0 40) (list (first (second kids)) (first (third kids))))))
+  ;; Scrolled along, it builds the items that are actually there.
+  (let ((built '()))
+    (virtual-list 1000 (lambda (i) (push i built) `(box (:width 40 :height 30)))
+                  :axis :horizontal :id :c :offset 4000 :viewport 200 :item-size 40 :height 30)
+    (check "scrolled, it builds the items at that offset"
+           '(98 99 100 101 102 103 104 105 106) (sort (copy-list built) #'<)))
+  ;; SCROLL-BY clamped against the frame's HEIGHT whatever the axis, which for a
+  ;; horizontal scroller is the wrong number entirely: here it would have allowed
+  ;; 480 instead of 400, and the carousel would have run off its own end.
+  (let ((node (layout (scroll (list '(box (:width 500 :height 20)))
+                              :axis :horizontal :width 100 :height 20)
+                      0 0)))
+    (check "a horizontal scroller clamps against its width" 400 (scroll-by node 0 1000))
+    (check "and still cannot scroll before its start" 0 (scroll-by node 0 -1000)))
+  (let ((node (layout (scroll (list '(box (:width 20 :height 500)))
+                              :width 20 :height 100)
+                      0 0)))
+    (check "a vertical one still clamps against its height" 400 (scroll-by node 0 1000))))
+
 (defun run-tests ()
   (setf *failures* 0 *checks* 0)
   (test-geometry) (test-paint) (test-font)
   (test-layout) (test-render) (test-raster)
   (test-input) (test-widgets) (test-constraints) (test-backend) (test-extension)
-  (test-utf8) (test-stacking) (test-text-field) (test-elevation) (test-stretch) (test-paths)
+  (test-utf8) (test-stacking) (test-text-field) (test-elevation) (test-stretch) (test-paths) (test-horizontal-list)
   (test-composites) (test-corners-and-clipping) (test-scroll) (test-clock) (test-virtual-list) (test-image)
   (format t "~%~D checks, ~D failures~%" *checks* *failures*)
   *failures*)

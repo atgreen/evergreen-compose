@@ -124,33 +124,43 @@ as one thing instead of the knob sliding across a track that snaps."
   "CHILD with a caption above it."
   `(column (:gap ,gap) ,(text text-string :size size :colour (theme :muted)) ,child))
 
-(defun scroll (children &key id (offset 0) on-drag height width)
-  "A clipped container whose children are shifted by OFFSET.
+(defun scroll (children &key id (offset 0) on-drag height width (axis :vertical))
+  "A clipped container whose children are shifted by OFFSET along AXIS.
 
-Not a new primitive: a column that clips and offsets IS a scroll view, so this
-is a function returning one. The offset lives in the application, like every
-other widget state, and ON-DRAG is handed the laid-out node so SCROLL-BY can
-clamp against the content it actually has."
-  `(column (:clip t :scroll t :offset-y ,offset :id ,id
-            ,@(when on-drag (list :on-drag on-drag))
-            ,@(when height (list :height height))
-            ,@(when width (list :width width)))
-     ,@children))
+Not a new primitive: a stack that clips and offsets IS a scroll view, so this is
+a function returning one. The offset lives in the application, like every other
+widget state, and ON-DRAG is handed the laid-out node so SCROLL-BY can clamp
+against the content it actually has.
 
-(defun visible-range (offset viewport item-height count &key (overscan 2))
+:HORIZONTAL costs a row instead of a column and :OFFSET-X instead of :OFFSET-Y,
+and nothing else: the layout already offsets along whichever axis its stack
+runs, so the second direction was always there and only the vocabulary was
+missing."
+  (let ((horizontal (eq axis :horizontal)))
+    `(,(if horizontal 'row 'column)
+      (:clip t :scroll t
+       ,(if horizontal :offset-x :offset-y) ,offset
+       :id ,id
+       ,@(when on-drag (list :on-drag on-drag))
+       ,@(when height (list :height height))
+       ,@(when width (list :width width)))
+      ,@children)))
+
+(defun visible-range (offset viewport item-size count &key (overscan 2))
   "The half-open range of item indices worth building, as first and last.
 
-Only the rows on screen are built, plus OVERSCAN either side so a fast scroll
+Only the items on screen are built, plus OVERSCAN either side so a fast scroll
 does not show a gap before the next frame catches up. This is the whole reason a
 list is not just a loop: laying out a thousand rows to show ten costs a thousand
 rows, and at the measured cost of a node that is over a second a frame."
-  (let* ((first (max 0 (- (floor offset item-height) overscan)))
-         (last (min count (+ (ceiling (+ offset viewport) item-height) overscan))))
+  (let* ((first (max 0 (- (floor offset item-size) overscan)))
+         (last (min count (+ (ceiling (+ offset viewport) item-size) overscan))))
     (values first (max first last))))
 
-(defun virtual-list (count item &key id (offset 0) viewport (item-height 40)
-                                     width on-drag (overscan 2))
-  "A scrolling list of COUNT rows, of which only the visible ones are built.
+(defun virtual-list (count item &key id (offset 0) viewport (item-size 40)
+                                     width height on-drag (overscan 2)
+                                     (axis :vertical))
+  "A scrolling list of COUNT items, of which only the visible ones are built.
 
 ITEM is called with an index and returns a view. It is called only for rows in
 view, so COUNT may be enormous.
@@ -159,18 +169,28 @@ The rows off screen are replaced by two SPACERS, one above and one below, sized
 to exactly the space those rows would have taken. That keeps the content height
 honest -- so SCROLL-BY clamps against the real extent and the scroll position
 means what it says -- without building anything. It also means every row must be
-exactly ITEM-HEIGHT tall, which is why this wraps each one to that height rather
-than trusting it: a row that disagrees would make the spacers lie and the list
-would drift as it scrolled."
-  (multiple-value-bind (first last)
-      (visible-range offset viewport item-height count :overscan overscan)
-    (scroll
-     (append
-      (list (spacer :height (* first item-height)))
-      (loop for index from first below last
-            collect `(column (:height ,item-height) ,(funcall item index)))
-      (list (spacer :height (* (- count last) item-height))))
-     :id id :offset offset :height viewport :width width :on-drag on-drag)))
+exactly ITEM-SIZE along the scroll axis, which is why this wraps each one to
+that size rather than trusting it: an item that disagrees would make the spacers
+lie and the list would drift as it scrolled.
+
+:AXIS :HORIZONTAL makes it a carousel. VIEWPORT is always the extent ALONG the
+scroll, so it is the width of a horizontal list and the height of a vertical
+one, and :WIDTH / :HEIGHT then say the other dimension."
+  (let ((horizontal (eq axis :horizontal)))
+    (multiple-value-bind (first last)
+        (visible-range offset viewport item-size count :overscan overscan)
+      (flet ((gap (size) (if horizontal (spacer :width size) (spacer :height size)))
+             (cell (index)
+               `(,(if horizontal 'row 'column)
+                 (,(if horizontal :width :height) ,item-size)
+                 ,(funcall item index))))
+        (scroll
+         (append (list (gap (* first item-size)))
+                 (loop for index from first below last collect (cell index))
+                 (list (gap (* (- count last) item-size))))
+         :axis axis :id id :offset offset :on-drag on-drag
+         :height (if horizontal height viewport)
+         :width (if horizontal viewport width))))))
 
 (defun image (source &key width height)
   "SOURCE drawn at its own size, or scaled to WIDTH and HEIGHT.

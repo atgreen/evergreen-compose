@@ -66,9 +66,15 @@ begins on a button does not press it.")
   "OFFSET moved by DELTA and clamped to what NODE can actually scroll.
 
 Clamping needs both numbers the laid-out node already has: its frame is the
-viewport and its CONTENT is what is inside, so the furthest it may scroll is the
+viewport and its CONTENT is what is inside it, so the furthest it may scroll is the
 difference. A scroller shorter than its viewport cannot scroll at all, which
 falls out as a limit of zero rather than needing a case."
-  (let ((limit (max 0 (- (laid-out-content node)
-                         (rect-height (laid-out-frame node))))))
+  (let* ((frame (laid-out-frame node))
+         ;; Along the node's OWN axis. Clamping a horizontal scroller against
+         ;; its height would let it run off the end or refuse to move at all,
+         ;; depending only on which happened to be larger.
+         (viewport (if (eq (view-kind (laid-out-view node)) :row)
+                       (rect-width frame)
+                       (rect-height frame)))
+         (limit (max 0 (- (laid-out-content node) viewport))))
     (max 0 (min limit (+ offset delta)))))

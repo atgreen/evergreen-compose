@@ -33,7 +33,7 @@
        ,(bliss:virtual-list
          *rows* #'item
          :id :list :offset *offset* :viewport viewport
-         :item-height +row-height+ :width (- width 32)
+         :item-size +row-height+ :width (- width 32)
          :on-drag (lambda (node dx dy)
                     (declare (ignore dx))
                     (setf *offset* (bliss:scroll-by node *offset* (- dy))))))))
