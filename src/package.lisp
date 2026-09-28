@@ -18,7 +18,11 @@
    :draw :clear :pixel-at :write-ppm :ascii-art
    :native-pixel :colour-from-native
    ;; GLES backend (Android)
-   :gles-init :gles-surface-size :gles-draw)
+   :gles-init :gles-surface-size :gles-draw
+   ;; JNI, and the Canvas backend over Android's own Skia
+   :jni-start :jni-check :jni-find-class :jni-method :jni-string
+   :canvas-open :canvas-draw :canvas-pixels :canvas-release-pixels
+   :canvas-width :canvas-height)
   (:documentation
    "A view tree is Lisp data. LAYOUT turns it into placed frames, RENDER turns
 those into a flat display list, and a backend executes that list. The framework
