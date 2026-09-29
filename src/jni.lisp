@@ -30,6 +30,9 @@
 (defconstant +jni-delete-local-ref+ 23)
 (defconstant +jni-get-static-method-id+ 113)
 (defconstant +jni-call-static-object-method-a+ 116)
+(defconstant +jni-call-static-int-method-a+ 131)
+(defconstant +jni-get-field-id+ 94)
+(defconstant +jni-get-int-field+ 100)
 (defconstant +jni-get-static-field-id+ 144)
 (defconstant +jni-get-static-object-field+ 145)
 (defconstant +jni-new-string-utf+ 167)
@@ -284,11 +287,44 @@ no-op, so it is handed straight back."
       (if reference promoted result))))
 
 (defmacro with-local-refs ((&optional (capacity 16)) &body body)
-  "Release every local reference BODY makes, keeping only what it returns."
-  (let ((value (gensym "VALUE")))
+  "Release every local reference BODY makes, keeping only what it returns.
+
+ALL of what it returns. The first version kept only the primary value, so a body
+answering (VALUES 0 0 0 0) came back as 0 and three NILs -- which surfaced as
+\"the value NIL is not of type integer\" in a caller's FORMAT, a long way from
+here. Only the first value can be promoted out of the frame, because only one
+thing can be, and that is the right one: a body returning several references
+would have to say which survives."
+  (let ((values (gensym "VALUES")))
     `(progn
        (jni-push-frame ,capacity)
-       (let ((,value nil))
-         (unwind-protect (setf ,value (progn ,@body))
-           (setf ,value (jni-pop-frame ,value)))
-         ,value))))
+       (let ((,values nil))
+         (unwind-protect (setf ,values (multiple-value-list (progn ,@body)))
+           (setf ,values (cons (jni-pop-frame (first ,values)) (rest ,values))))
+         (values-list ,values)))))
+
+(defun jni-field (class name signature)
+  "A field ID. Unlike a method, a PUBLIC FIELD is how several small Android
+value classes are read -- Insets carries left, top, right and bottom that way
+and offers no getters at all."
+  (android:with-c-string (n name)
+    (android:with-c-string (sig signature)
+      (let ((id (torcl-ffi:foreign-call (jni-slot +jni-get-field-id+) :pointer
+                                        '(:pointer :pointer :pointer :pointer)
+                                        (list *env* class n sig))))
+        (when (torcl-ffi:null-pointer-p id)
+          (error "No such Java field: ~A ~A" name signature))
+        id))))
+
+(defun jni-int-field (object field)
+  (torcl-ffi:foreign-call (jni-slot +jni-get-int-field+) :int
+                          '(:pointer :pointer :pointer) (list *env* object field)))
+
+(defun jni-call-static-int (class method args)
+  "A static method returning an int. NOT JNI-CALL-INT with the class as the
+receiver: that is an instance call on a Class object, which is a different
+method or none, and JNI will not say so."
+  (incf *jni-calls*)
+  (torcl-ffi:foreign-call (jni-slot +jni-call-static-int-method-a+) :int
+                          '(:pointer :pointer :pointer :pointer)
+                          (list *env* class method args)))

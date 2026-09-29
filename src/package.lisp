@@ -31,6 +31,7 @@
    ;; input and dispatch
    :semantics :semantic-p :merges-p :describe-node :+roles+
    :announce :announce-node :accessibility-enabled-p :exploring-by-touch-p :describe-screen
+   :window-insets
    :hit-test :dispatch :node-prop :scale-point :scroll-by :*drag-slop*
    :fling-step :flinging-p :drag-velocity :*fling-friction* :*fling-minimum*
    :laid-out-content
@@ -45,13 +46,14 @@
    :*text-input* :focus-text-field :blur-text-field :pump-text-input :text-focus-id
    ;; JNI, and the Canvas backend over Android's own Skia
    :jni-start :jni-check :jni-find-class :jni-method :jni-string
-   :jni-text :jni-call-boolean :jni-call-int :jni-release :with-local-refs :*jni-calls*
+   :jni-text :jni-call-boolean :jni-call-int :jni-field :jni-int-field :jni-call-static-int :jni-release :with-local-refs :*jni-calls*
    ;; the on-screen keyboard
    :show-keyboard :hide-keyboard :toggle-keyboard :keyboard-shown-p :key-character
    :attach-editor :editor-text :set-editor-text :start-text-input :accepting-text-p
    ;; the Android host: window, touch mapping and the frame loop
    :*pressed* :*dirty* :*touch-events* :invalidate :android-host :open-android-host :run-android-app
    :host-width :host-height :host-placed :host-backend :host-drag-samples
+   :host-insets :refresh-insets
    :with-frame-clock :host-started :host-last-frame
    :canvas-open :canvas-draw :canvas-pixels :canvas-release-pixels
    :*measure-text* :bitmap-text-extent :text-extent

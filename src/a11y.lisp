@@ -92,3 +92,48 @@ over aborts the process."
                                   "(Ljava/lang/CharSequence;)V")
                      (jni-args (list :object (jni-string text))))
                :void)))
+
+;;;; ── What the system is covering ───────────────────────────────────────
+;;;;
+;;;; A phone's screen is not all yours. The status bar, the gesture bar, a
+;;;; display cutout and above all the keyboard each take a strip of it, and a
+;;;; layout that ignores them puts a text field under the keyboard the moment it
+;;;; opens -- which is the one place a text field must not be.
+
+(defparameter +insets-class+ "android/graphics/Insets")
+
+(defun window-insets (kind)
+  "LEFT TOP RIGHT BOTTOM, in physical pixels, for KIND.
+
+KIND is :SYSTEM-BARS or :IME. Zeroes before the view is attached, which is not
+an error: there is no window yet and nothing is covering it.
+
+Insets carries its four numbers as public FIELDS and offers no getters, which is
+why JNI-FIELD exists."
+  (with-local-refs ()
+    (let* ((type-class (java-class "android/view/WindowInsets$Type"))
+           (type (jni-call-static-int
+                  type-class
+                  (java-method "android/view/WindowInsets$Type"
+                               (ecase kind (:system-bars "systemBars") (:ime "ime"))
+                               "()I" :static t)
+                  (jni-args)))
+           (insets-source
+             (jni-call-object (decor-view)
+                              (java-method +view-class+ "getRootWindowInsets"
+                                           "()Landroid/view/WindowInsets;")
+                              (jni-args))))
+      (if (torcl-ffi:null-pointer-p insets-source)
+          (values 0 0 0 0)
+          (let* ((insets (jni-call-object
+                          insets-source
+                          (java-method "android/view/WindowInsets" "getInsets"
+                                       "(I)Landroid/graphics/Insets;")
+                          (jni-args (list :int type))))
+                 (class (java-class +insets-class+)))
+            (if (torcl-ffi:null-pointer-p insets)
+                (values 0 0 0 0)
+                (values (jni-int-field insets (jni-field class "left" "I"))
+                        (jni-int-field insets (jni-field class "top" "I"))
+                        (jni-int-field insets (jni-field class "right" "I"))
+                        (jni-int-field insets (jni-field class "bottom" "I")))))))))

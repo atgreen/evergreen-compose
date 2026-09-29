@@ -37,6 +37,7 @@ told whether it is pressed without remembering anything itself.")
    (drag-last :initform nil :accessor host-drag-last)
    (dragging :initform nil :accessor host-dragging)
    (drag-samples :initform '() :accessor host-drag-samples)
+   (insets :initform '(0 0 0 0) :accessor host-insets)
    (last-display :initform nil :accessor host-last-display)))
 
 (defun android-call (host name return types arguments)
@@ -99,6 +100,24 @@ opened at the window's own stride."
     (canvas-release-pixels (canvas-backend-canvas (host-backend host)))
     (android-call host "ANativeWindow_unlockAndPost" :int '(:pointer)
                   (list (host-window host)))))
+
+(defun refresh-insets (host)
+  "Re-read what the system is covering, in LOGICAL pixels. True if it changed.
+
+Polled once a frame rather than subscribed to, because subscribing is
+View.setOnApplyWindowInsetsListener and a listener is a Java class we cannot
+define. Costs a handful of JNI crossings; the keyboard opening is not something
+an application can be told about any other way."
+  (multiple-value-bind (bl bt br bb) (window-insets :system-bars)
+    (multiple-value-bind (il it ir ib) (window-insets :ime)
+      (let ((next (list (floor (max bl il) (host-x-ratio host))
+                        (floor (max bt it) (host-y-ratio host))
+                        (floor (max br ir) (host-x-ratio host))
+                        (floor (max bb ib) (host-y-ratio host)))))
+        (unless (equal next (host-insets host))
+          (setf (host-insets host) next)
+          (invalidate)
+          t)))))
 
 (defmacro with-frame-clock ((host) &body body)
   "Run BODY as one frame: the clock fixed, and another frame asked for if the
@@ -280,6 +299,7 @@ something should cost nothing when they are not doing anything."
                     ;; A touch may fire a handler, which may change anything the
                     ;; view reads, so any dispatched touch owes a frame.
                     (when (host-pump-touches host) (invalidate))
+                    (refresh-insets host)
                     (cond (*dirty*
                            (setf *dirty* nil)
                            (with-frame-clock (host)
