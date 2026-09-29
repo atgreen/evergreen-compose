@@ -32,7 +32,10 @@
   (strings (make-hash-table :test #'equal))
   (images (make-hash-table :test #'eq))
   (blurs (make-hash-table :test #'eql))
-  (paths (make-hash-table :test #'eq)))
+  (paths (make-hash-table :test #'eq))
+  ;; What the Paint is currently set to, so a frame does not keep saying it.
+  (current-colour :unknown)
+  (current-text-size :unknown))
 
 (defun android-colour (colour)
   "A Bliss #xRRGGBBAA colour as Android's ARGB integer.
@@ -150,6 +153,28 @@ int Java expects rather than a positive bignum."
       (canvas-install-metrics canvas)
       canvas)))
 
+(defun canvas-colour (canvas colour)
+  "Set the paint colour, unless the paint is already that colour.
+
+Every drawing operation sets one, and a UI repeats them relentlessly -- one
+surface, one ink, one accent, over and over. Measured on a Pixel 10 Pro XL, a
+crossing into C costs about 170us and PRESENT makes 190 of them a frame, which
+is the whole of its 32ms: clipping the entire display list to a single pixel
+changed nothing at all (bliss-asd). So a crossing not made is worth more than
+anything it could have drawn."
+  (let ((argb (android-colour colour)))
+    (unless (eql argb (canvas-current-colour canvas))
+      (setf (canvas-current-colour canvas) argb)
+      (jni-call-void (canvas-paint canvas) (canvas-set-colour canvas)
+                     (jni-args (list :int argb))))))
+
+(defun canvas-text-size (canvas size)
+  "Set the text size, unless it is already that. See CANVAS-COLOUR."
+  (unless (eql size (canvas-current-text-size canvas))
+    (setf (canvas-current-text-size canvas) size)
+    (jni-call-void (canvas-paint canvas) (canvas-set-text-size canvas)
+                   (jni-args (list :float size)))))
+
 (defun canvas-blur (canvas radius)
   "A BlurMaskFilter of RADIUS, made once per radius and kept.
 
@@ -212,8 +237,7 @@ label measured during layout is measured again on the next frame otherwise."
                 (if hit
                     (values (car hit) (cdr hit))
                     (let ((size (* scale +glyph-height+)))
-                      (jni-call-void paint (canvas-set-text-size canvas)
-                                     (jni-args (list :float size)))
+                      (canvas-text-size canvas size)
                       (let* ((width (torcl-ffi:foreign-call
                                      (jni-slot +jni-call-float-method-a+) :float
                                      '(:pointer :pointer :pointer :pointer)
@@ -294,8 +318,7 @@ drawText call, with real shaping and antialiasing."
         (:clip-pop (jni-call-void object (canvas-restore canvas) (jni-args)))
         (:fill-round-rect
          (destructuring-bind (x y w h radius colour) (rest op)
-           (jni-call-void paint (canvas-set-colour canvas)
-                          (jni-args (list :int (android-colour colour))))
+           (canvas-colour canvas colour)
            (jni-call-void object (canvas-draw-round-rect canvas)
                           (jni-args (list :float x) (list :float y)
                                     (list :float (+ x w)) (list :float (+ y h))
@@ -303,8 +326,7 @@ drawText call, with real shaping and antialiasing."
                                     (list :object paint)))))
         (:shadow
          (destructuring-bind (x y w h radius blur dy colour) (rest op)
-           (jni-call-void paint (canvas-set-colour canvas)
-                          (jni-args (list :int (android-colour colour))))
+           (canvas-colour canvas colour)
            ;; setMaskFilter RETURNS the previous filter, so both calls make a
            ;; local reference. On a thread attached with AttachCurrentThread
            ;; nothing ever pops those, and this runs per shadow per frame.
@@ -322,8 +344,7 @@ drawText call, with real shaping and antialiasing."
            ;; The path is built in its own 24-unit space and the CANVAS is moved
            ;; to meet it, rather than the path being rebuilt at every position
            ;; and size it appears in.
-           (jni-call-void paint (canvas-set-colour canvas)
-                          (jni-args (list :int (android-colour ink))))
+           (canvas-colour canvas ink)
            (torcl-ffi:foreign-call (jni-slot +jni-call-int-method-a+) :int
                                    '(:pointer :pointer :pointer :pointer)
                                    (list *env* object (canvas-save canvas) (jni-args)))
@@ -353,20 +374,17 @@ drawText call, with real shaping and antialiasing."
                                       (list :object paint))))))
         (:fill-rect
          (destructuring-bind (x y w h colour) (rest op)
-           (jni-call-void paint (canvas-set-colour canvas)
-                          (jni-args (list :int (android-colour colour))))
+           (canvas-colour canvas colour)
            (jni-call-void object (canvas-draw-rect canvas)
                           (jni-args (list :float x) (list :float y)
                                     (list :float (+ x w)) (list :float (+ y h))
                                     (list :object paint)))))
         (:glyphs
          (destructuring-bind (x y text scale colour) (rest op)
-           (jni-call-void paint (canvas-set-colour canvas)
-                          (jni-args (list :int (android-colour colour))))
+           (canvas-colour canvas colour)
            ;; A Bliss :size is a multiple of the 5x7 bitmap cell, so the nearest
            ;; Canvas equivalent is that many pixels of text height.
-           (jni-call-void paint (canvas-set-text-size canvas)
-                          (jni-args (list :float (* scale +glyph-height+))))
+           (canvas-text-size canvas (* scale +glyph-height+))
            ;; Bliss places text by its TOP edge; Canvas places it by the
            ;; baseline. ASCENT is negative, so subtracting it moves down.
            (let ((ascent (torcl-ffi:foreign-call

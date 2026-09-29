@@ -50,6 +50,13 @@
 
 (defun jni-slot (index) (word-at *env-table* index))
 
+(defvar *jni-calls* 0
+  "Diagnostic: crossings into C since it was last zeroed.
+
+Counted because PRESENT costs the same clipped to one pixel as unclipped
+(bliss-asd), so its cost is the crossings and not the drawing, and the only way
+to price a crossing is to know how many there were.")
+
 (defun jni-start ()
   "Attach this thread to the running VM and verify the function table.
 
@@ -152,21 +159,25 @@ valid until the native call that produced it returns."
   *args*)
 
 (defun jni-call-void (object method args)
+  (incf *jni-calls*)
   (torcl-ffi:foreign-call (jni-slot +jni-call-void-method-a+) :void
                           '(:pointer :pointer :pointer :pointer)
                           (list *env* object method args)))
 
 (defun jni-call-object (object method args)
+  (incf *jni-calls*)
   (torcl-ffi:foreign-call (jni-slot +jni-call-object-method-a+) :pointer
                           '(:pointer :pointer :pointer :pointer)
                           (list *env* object method args)))
 
 (defun jni-call-static-object (class method args)
+  (incf *jni-calls*)
   (torcl-ffi:foreign-call (jni-slot +jni-call-static-object-method-a+) :pointer
                           '(:pointer :pointer :pointer :pointer)
                           (list *env* class method args)))
 
 (defun jni-new (class constructor args)
+  (incf *jni-calls*)
   (torcl-ffi:foreign-call (jni-slot +jni-new-object-a+) :pointer
                           '(:pointer :pointer :pointer :pointer)
                           (list *env* class constructor args)))
@@ -187,11 +198,13 @@ rebuilding a label's string every frame costs more than drawing it."
       (torcl-ffi:foreign-free buffer))))
 
 (defun jni-call-boolean (object method args)
+  (incf *jni-calls*)
   (plusp (torcl-ffi:foreign-call (jni-slot +jni-call-boolean-method-a+) :int
                                  '(:pointer :pointer :pointer :pointer)
                                  (list *env* object method args))))
 
 (defun jni-call-int (object method args)
+  (incf *jni-calls*)
   (torcl-ffi:foreign-call (jni-slot +jni-call-int-method-a+) :int
                           '(:pointer :pointer :pointer :pointer)
                           (list *env* object method args)))
