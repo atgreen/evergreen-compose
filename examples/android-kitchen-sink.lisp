@@ -92,6 +92,19 @@
                                                   (bliss:blur-text-field)))))))
     (cdr *fields*)))
 
+(defun clipped-banner (width)
+  "Two full-bleed stripes inside a rounded container.
+
+This is the case bliss-cvj broke and nothing else in the demo showed: the
+container drew a rounded background and then let its children paint square
+corners straight over it. Contrasting colours on purpose -- against the page
+background a square corner is unmistakable, and against a matching one it is
+invisible, which is how this survived so long."
+  (let ((w (- width 32)))
+    `(column (:clip t :radius 24 :width ,w :height 56)
+       (box (:width ,w :height 28 :fill ,(bliss:rgb 255 110 0)))
+       (box (:width ,w :height 28 :fill ,(bliss:rgb 0 170 255))))))
+
 (defparameter *web-html*
   "<html><body style='margin:0;padding:10px;background:#3949ab;color:#fff;font:15px sans-serif'><b>A real WebView.</b> Chrome is rendering this, inside a Bliss column. <ul style='margin:6px 0 0 18px'><li>text you can select</li><li>a <i>list</i> Bliss never drew</li></ul></body></html>")
 
@@ -243,6 +256,7 @@ frame: EQUAL on a seven-element list is cheap, PRIN1 is not."
                             :cross-align :stretch)
                      ,(third (chrome))
                      ,(shelf width)
+                     ,(clipped-banner width)
                      ,(web-panel width)
                      ,@(fields))
                   (fourth (chrome))

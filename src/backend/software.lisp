@@ -143,10 +143,8 @@ and then filling each is what made this slow in the first place."
   (let ((clips (list nil)))
     (dolist (op display-list surface)
       (ecase (first op)
-        (:clip-push (destructuring-bind (x y w h) (rest op)
-                      (let ((new (rect x y w h)))
-                        (push (if (first clips) (rect-intersect new (first clips)) new)
-                              clips))))
+        (:clip-push (destructuring-bind (x y w h &optional (radius 0)) (rest op)
+                      (setf clips (push-clip clips x y w h radius))))
         (:clip-pop (pop clips))
         (:fill-rect (destructuring-bind (x y w h colour) (rest op)
                       (fill-clipped surface x y w h colour (first clips))))
@@ -187,32 +185,30 @@ which is the right sampling for the pixel art this rasterizer exists to draw and
 the wrong one for a photograph. A backend with a real image pipeline -- Canvas
 has one -- should draw the image itself rather than come through here."
   (when (and (plusp width) (plusp height))
-    (let* ((area (rect-intersect (rect x y width height)
-                                 (if clip
-                                     (or (rect-intersect clip (surface-rect surface))
-                                         (rect 0 0 0 0))
-                                     (surface-rect surface))))
-           (source-width (surface-width source))
-           (source-height (surface-height source)))
-      (when area
-        (loop for py from (rect-y area) below (rect-bottom area)
-              do (let ((sy (min (1- source-height)
-                                (floor (* (- py y) source-height) height))))
-                   (loop for px from (rect-x area) below (rect-right area)
-                         do (let ((sx (min (1- source-width)
-                                           (floor (* (- px x) source-width) width))))
-                              (setf (pixel-at surface px py)
-                                    (blend (pixel-at source sx sy)
-                                           (pixel-at surface px py)))))))))))
+    (let ((source-width (surface-width source))
+          (source-height (surface-height source)))
+      ;; Per SPAN, not per rectangle, so an image inside a rounded container is
+      ;; clipped to the corners the container actually draws.
+      (dolist (span (clip-spans x y width height clip))
+        (destructuring-bind (sx* sy* sw sh) span
+          (let ((area (rect-intersect (rect sx* sy* sw sh) (surface-rect surface))))
+            (when area
+              (loop for py from (rect-y area) below (rect-bottom area)
+                    do (let ((sy (min (1- source-height)
+                                      (floor (* (- py y) source-height) height))))
+                         (loop for px from (rect-x area) below (rect-right area)
+                               do (let ((sx (min (1- source-width)
+                                                 (floor (* (- px x) source-width) width))))
+                                    (setf (pixel-at surface px py)
+                                          (blend (pixel-at source sx sy)
+                                                 (pixel-at surface px py))))))))))))))
 
 (defun fill-clipped (surface x y width height colour clip)
-  "FILL-RECT, first intersected with CLIP when there is one."
-  (if (null clip)
-      (fill-rect surface x y width height colour)
-      (let ((area (rect-intersect (rect x y width height) clip)))
-        (when area
-          (fill-rect surface (rect-x area) (rect-y area)
-                     (rect-width area) (rect-height area) colour)))))
+  "FILL-RECT, first cut to CLIP -- which may be rounded, and then arrives as one
+span per row rather than one rectangle."
+  (dolist (span (clip-spans x y width height clip))
+    (destructuring-bind (sx sy sw sh) span
+      (fill-rect surface sx sy sw sh colour))))
 
 ;;; ── Getting a frame out ───────────────────────────────────────────────
 

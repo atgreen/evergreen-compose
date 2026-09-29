@@ -1411,12 +1411,63 @@ identity, so a test that wants to compare two rectangles must compare numbers."
                                                :placeholder +black+))
                                    0 0)))))
 
+(defun test-rounded-clipping ()
+  (format t "a rounded container clips its children round~%")
+  ;; The radius travels WITH the clip. Without it the display list says nothing
+  ;; about the shape and every backend clips square (bliss-cvj).
+  (let ((ops (render (layout '(column (:clip t :radius 6 :width 20 :height 20)
+                               (box (:width 20 :height 20 :fill "#ff0000")))
+                             0 0))))
+    (check "the clip op carries the radius" '(:clip-push 0 0 20 20 6) (first ops)))
+  ;; A container with no radius still says 0 rather than nothing, so a backend
+  ;; never has to guess how long the operation is.
+  (check "and says zero when there is none" '(:clip-push 0 0 20 20 0)
+         (first (render (layout '(column (:clip t :width 20 :height 20)
+                                  (box (:width 20 :height 20 :fill "#ff0000")))
+                                0 0))))
+  ;; A rectangular clip is still one span, which is the case that must stay free.
+  (check "a square clip yields one span"
+         '((2 2 6 6)) (clip-spans 0 0 10 10 (car (push-clip (list nil) 2 2 6 6))))
+  ;; A rounded one yields a span per row, and the first row is the inset one.
+  (let ((spans (clip-spans 0 0 20 20 (car (push-clip (list nil) 0 0 20 20 6)))))
+    (check "a rounded clip yields one span per row" 20 (length spans))
+    (check-true "whose first row is inset" (< (third (first spans)) 20))
+    (check "while the middle is not" 20 (third (nth 10 spans))))
+  ;; The corners are the point. A filled box inside a rounded clip must lose
+  ;; them, and this is exactly what failed before: the background was rounded
+  ;; and the content was square.
+  (let ((surface (make-surface 20 20 +white+)))
+    (draw surface (render (layout '(column (:clip t :radius 6 :width 20 :height 20)
+                                    (box (:width 20 :height 20 :fill "#000000")))
+                                  0 0)))
+    (check "the corner is not painted" +white+ (pixel-at surface 0 0))
+    (check "nor the other three" (list +white+ +white+ +white+)
+           (list (pixel-at surface 19 0) (pixel-at surface 0 19) (pixel-at surface 19 19)))
+    (check "the middle is" +black+ (pixel-at surface 10 10))
+    (check "and so is the edge between the corners" +black+ (pixel-at surface 0 10)))
+  ;; An image is clipped the same way -- it does not come through FILL-CLIPPED,
+  ;; so it is the one that silently kept its square corners.
+  (let ((source (make-surface 4 4 (rgb 255 0 0)))
+        (surface (make-surface 20 20 +white+)))
+    (draw surface (render (layout `(column (:clip t :radius 6 :width 20 :height 20)
+                                     ,(image source :width 20 :height 20))
+                                  0 0 (constraints 0 20 0 20))))
+    (check "an image loses the corner too" +white+ (pixel-at surface 0 0))
+    (check "and keeps the middle" (rgb 255 0 0) (pixel-at surface 10 10)))
+  ;; A rectangle-only backend gets it through FLATTEN, as rows.
+  (let ((rects (flatten-to-rects
+                (render (layout '(column (:clip t :radius 6 :width 20 :height 20)
+                                  (box (:width 20 :height 20 :fill "#00ff00")))
+                                0 0)))))
+    (check "flatten turns a rounded clip into rows" 20 (length rects))
+    (check-true "the first of which is inset" (< (third (first rects)) 20))))
+
 (defun run-tests ()
   (setf *failures* 0 *checks* 0)
   (test-geometry) (test-paint) (test-font)
   (test-layout) (test-render) (test-raster)
   (test-input) (test-widgets) (test-constraints) (test-backend) (test-extension)
-  (test-utf8) (test-stacking) (test-text-field) (test-elevation) (test-stretch) (test-paths) (test-horizontal-list) (test-memo-across-frames) (test-damage) (test-damaged-drawing) (test-design-system) (test-screen-composites) (test-svg) (test-borders) (test-fling) (test-semantics) (test-overlays) (test-nested-scroll) (test-bring-into-view) (test-saved-state) (test-platform-view)
+  (test-utf8) (test-stacking) (test-text-field) (test-elevation) (test-stretch) (test-paths) (test-horizontal-list) (test-memo-across-frames) (test-damage) (test-damaged-drawing) (test-design-system) (test-screen-composites) (test-svg) (test-borders) (test-fling) (test-semantics) (test-overlays) (test-nested-scroll) (test-bring-into-view) (test-saved-state) (test-platform-view) (test-rounded-clipping)
   (test-composites) (test-corners-and-clipping) (test-scroll) (test-clock) (test-virtual-list) (test-image)
   (format t "~%~D checks, ~D failures~%" *checks* *failures*)
   *failures*)

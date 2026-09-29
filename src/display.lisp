@@ -12,28 +12,92 @@
 ;;; replayed -- which is how the tests below compare renders without a GPU, and
 ;;; how the same frame can go to a software surface here and to GLES on a phone.
 
+(defun round-rect-inset (radius height row)
+  "How far a rounded rectangle's edge is inset at ROW, counted from its top.
+
+The horizontal distance from the corner circle's centre to its edge at that
+height: the circle equation and nothing cleverer. Its own function because
+CLIP-SPANS needs exactly this for a row it did not generate."
+  (let* ((from-top (- radius row 1/2))
+         (from-bottom (- radius (- height row 1) 1/2))
+         (depth (max (if (plusp from-top) from-top 0)
+                     (if (plusp from-bottom) from-bottom 0))))
+    (if (plusp depth)
+        (- radius (isqrt (max 0 (floor (- (* radius radius) (* depth depth))))))
+        0)))
+
 (defun round-rect-spans (x y width height radius)
   "A rounded rectangle as one horizontal span per row: (x y width height).
 
 Decomposing to spans rather than teaching every backend about arcs means a
 backend that can fill an axis-aligned rectangle gets rounded corners for free,
 exactly as FLATTEN-TO-RECTS gets text for free. A backend that HAS arcs -- Canvas
-does -- should use them instead and skip this.
-
-The inset per row is the horizontal distance from the corner circle's centre to
-its edge at that height, which is the circle equation and nothing cleverer."
+does -- should use them instead and skip this."
   (let ((r (min radius (floor width 2) (floor height 2)))
         (spans '()))
     (dotimes (row height (nreverse spans))
-      (let* ((from-top (- r row 1/2))
-             (from-bottom (- r (- height row 1) 1/2))
-             (depth (max (if (plusp from-top) from-top 0)
-                         (if (plusp from-bottom) from-bottom 0)))
-             (inset (if (plusp depth)
-                        (- r (isqrt (max 0 (floor (- (* r r) (* depth depth))))))
-                        0)))
+      (let ((inset (round-rect-inset r height row)))
         (when (< (* 2 inset) width)
           (push (list (+ x inset) (+ y row) (- width (* 2 inset)) 1) spans))))))
+
+;;; ── The clip stack ────────────────────────────────────────────────────
+;;;
+;;; A clip is (AREA RADIUS ROUND): the rectangle to intersect with, and -- when
+;;; the container that pushed it was rounded -- the radius and the rectangle
+;;; that radius belongs to. ROUND is kept separately because AREA may already
+;;; have been cut down by an outer clip, and the corners are a property of the
+;;; rounded container, not of what is left of it.
+;;;
+;;; NIL is no clip at all, and a clip whose AREA is NIL clips everything away.
+
+(defun clip-area (clip) (first clip))
+(defun clip-radius (clip) (second clip))
+(defun clip-round (clip) (third clip))
+
+(defun push-clip (clips x y w h &optional (radius 0))
+  "CLIPS with (X Y W H RADIUS) pushed on top, already intersected.
+
+Two nested ROUNDED clips keep only the inner radius. Intersecting two rounded
+shapes exactly would mean carrying a list of them and asking each one per row,
+and nothing yet has needed it: a rounded container inside a rounded container is
+a card inside a card, and the inner one is what the content touches."
+  (let* ((current (first clips))
+         (new (rect x y w h))
+         (area (cond ((null current) new)
+                     ((null (clip-area current)) nil)
+                     (t (rect-intersect (clip-area current) new)))))
+    (cons (if (plusp radius)
+              (list area radius new)
+              (list area (and current (clip-radius current))
+                    (and current (clip-round current))))
+          clips)))
+
+(defun clip-spans (x y w h clip)
+  "The parts of the rectangle that survive CLIP, as (x y width height) spans.
+
+ONE span when the clip is rectangular -- the common case, and it costs nothing.
+One span PER ROW when it is rounded, because that is what a rounded shape does
+to a rectangle: each row loses a different amount to the corners."
+  (cond ((null clip) (list (list x y w h)))
+        ((null (clip-area clip)) '())
+        (t
+         (let ((area (rect-intersect (rect x y w h) (clip-area clip))))
+           (cond ((null area) '())
+                 ((null (clip-round clip))
+                  (list (list (rect-x area) (rect-y area)
+                              (rect-width area) (rect-height area))))
+                 (t (%round-clip-spans area (clip-round clip) (clip-radius clip))))))))
+
+(defun %round-clip-spans (area round radius)
+  (let ((r (min radius (floor (rect-width round) 2) (floor (rect-height round) 2)))
+        (spans '()))
+    (loop for y from (rect-y area) below (rect-bottom area)
+          do (let* ((inset (round-rect-inset r (rect-height round) (- y (rect-y round))))
+                    (left (max (rect-x area) (+ (rect-x round) inset)))
+                    (right (min (rect-right area) (- (rect-right round) inset))))
+               (when (< left right)
+                 (push (list left y (- right left) 1) spans))))
+    (nreverse spans)))
 
 (defparameter *shadow-colour* (rgba 0 0 0 110)
   "What a raised surface casts. A view may override it with :SHADOW-COLOUR.
@@ -200,8 +264,13 @@ which is what makes a frame comparable between renders.")
                  ;; frame. Emitted around the children rather than by the node
                  ;; itself, because that is the extent being clipped TO.
                  (when (view-prop view :clip)
+                   ;; The RADIUS travels with the clip, so a rounded container
+                   ;; clips its children to the shape it actually draws. Without
+                   ;; it a card with :RADIUS painted rounded corners and let an
+                   ;; image inside it keep square ones (bliss-cvj).
                    (emit (list :clip-push (rect-x frame) (rect-y frame)
-                               (rect-width frame) (rect-height frame))))
+                               (rect-width frame) (rect-height frame)
+                               (view-prop view :radius 0))))
                  ;; Children after the parent's own background, so a container
                  ;; paints beneath what it contains.
                  (mapc #'walk (laid-out-children node))
@@ -220,22 +289,15 @@ cache. The GLES backend is six entry points because of this."
         (clips (list nil)))
     (flet ((clipped (x y w h colour)
              ;; Intersect with the innermost clip before emitting, so a backend
-             ;; that only fills rectangles needs to know nothing about clipping.
-             (let ((area (if (first clips)
-                             (rect-intersect (rect x y w h) (first clips))
-                             (rect x y w h))))
-               (when area
-                 (push (list (rect-x area) (rect-y area)
-                             (rect-width area) (rect-height area) colour)
-                       rects)))))
+             ;; that only fills rectangles needs to know nothing about clipping
+             ;; -- rounded clipping included, which arrives here as one span per
+             ;; row and leaves as ordinary rectangles.
+             (dolist (span (clip-spans x y w h (first clips)))
+               (push (append span (list colour)) rects))))
       (dolist (op display-list (nreverse rects))
         (ecase (first op)
-          (:clip-push (destructuring-bind (x y w h) (rest op)
-                        (let ((new (rect x y w h)))
-                          (push (if (first clips)
-                                    (rect-intersect new (first clips))
-                                    new)
-                                clips))))
+          (:clip-push (destructuring-bind (x y w h &optional (radius 0)) (rest op)
+                        (setf clips (push-clip clips x y w h radius))))
           (:clip-pop (pop clips))
           (:fill-round-rect
            (destructuring-bind (x y w h radius colour) (rest op)

@@ -28,6 +28,7 @@
   create-bitmap bitmap-class argb-8888 draw-bitmap src-rect dst-rect rect-set rectf-set
   set-mask-filter blur-class blur-init blur-normal
   path-class path-init path-move path-line path-quad path-cubic path-close
+  path-reset path-add-round-rect path-direction-cw clip-path clip-shape
   draw-path translate scale
   set-style set-stroke-width style-fill style-stroke
   (strings (make-hash-table :test #'equal))
@@ -84,6 +85,25 @@ int Java expects rather than a positive bignum."
                    :save (jni-method canvas-class "save" "()I")
                    :restore (jni-method canvas-class "restore" "()V")
                    :clip-rect (jni-method canvas-class "clipRect" "(FFFF)Z")
+                   ;; Skia can clip to a PATH, which is what makes a rounded
+                   ;; container clip its children to the shape it draws instead
+                   ;; of to the square around it (bliss-cvj).
+                   :clip-path (jni-method canvas-class "clipPath"
+                                          "(Landroid/graphics/Path;)Z")
+                   :path-reset (jni-method (jni-find-class "android/graphics/Path")
+                                           "reset" "()V")
+                   :path-add-round-rect
+                   (jni-method (jni-find-class "android/graphics/Path") "addRoundRect"
+                               "(FFFFFFLandroid/graphics/Path$Direction;)V")
+                   :path-direction-cw
+                   (jni-static-object-field (jni-find-class "android/graphics/Path$Direction")
+                                            "CW" "Landroid/graphics/Path$Direction;")
+                   ;; One Path, reused for every rounded clip.
+                   :clip-shape
+                   (jni-global (jni-new (jni-find-class "android/graphics/Path")
+                                        (jni-method (jni-find-class "android/graphics/Path")
+                                                    "<init>" "()V")
+                                        (jni-args)))
                    :draw-text (jni-method canvas-class "drawText"
                                           "(Ljava/lang/String;FFLandroid/graphics/Paint;)V")
                    :draw-colour (jni-method canvas-class "drawColor" "(I)V")
@@ -315,16 +335,31 @@ drawText call, with real shaping and antialiasing."
         ;; SAVE/RESTORE is Skia's own clip stack, so nothing has to be
         ;; intersected by hand and text is clipped as correctly as anything else.
         (:clip-push
-         (destructuring-bind (x y w h) (rest op)
+         (destructuring-bind (x y w h &optional (radius 0)) (rest op)
            (torcl-ffi:foreign-call (jni-slot +jni-call-int-method-a+) :int
                                    '(:pointer :pointer :pointer :pointer)
                                    (list *env* object (canvas-save canvas) (jni-args)))
-           (torcl-ffi:foreign-call (jni-slot +jni-call-boolean-method-a+) :int
-                                   '(:pointer :pointer :pointer :pointer)
-                                   (list *env* object (canvas-clip-rect canvas)
-                                         (jni-args (list :float x) (list :float y)
-                                                   (list :float (+ x w))
-                                                   (list :float (+ y h)))))))
+           (if (plusp radius)
+               ;; One Path, reset and refilled: a clip is pushed once per
+               ;; rounded container per frame, and allocating a Java object for
+               ;; each of them is a garbage collection nobody asked for.
+               (let ((shape (canvas-clip-shape canvas)))
+                 (jni-call-void shape (canvas-path-reset canvas) (jni-args))
+                 (jni-call-void shape (canvas-path-add-round-rect canvas)
+                                (jni-args (list :float x) (list :float y)
+                                          (list :float (+ x w)) (list :float (+ y h))
+                                          (list :float radius) (list :float radius)
+                                          (list :object (canvas-path-direction-cw canvas))))
+                 (torcl-ffi:foreign-call (jni-slot +jni-call-boolean-method-a+) :int
+                                         '(:pointer :pointer :pointer :pointer)
+                                         (list *env* object (canvas-clip-path canvas)
+                                               (jni-args (list :object shape)))))
+               (torcl-ffi:foreign-call (jni-slot +jni-call-boolean-method-a+) :int
+                                       '(:pointer :pointer :pointer :pointer)
+                                       (list *env* object (canvas-clip-rect canvas)
+                                             (jni-args (list :float x) (list :float y)
+                                                       (list :float (+ x w))
+                                                       (list :float (+ y h))))))))
         (:clip-pop (jni-call-void object (canvas-restore canvas) (jni-args)))
         (:fill-round-rect
          (destructuring-bind (x y w h radius colour) (rest op)
