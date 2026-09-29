@@ -257,8 +257,15 @@ testable anywhere."))
   (let ((surface (software-backend-surface backend)))
     (values (surface-width surface) (surface-height surface))))
 
-(defmethod present ((backend software-backend) display-list)
+(defmethod present ((backend software-backend) display-list &optional damage)
   (let ((surface (software-backend-surface backend)))
-    (clear surface +white+)
-    (draw surface display-list))
+    (if damage
+        ;; No CLEAR: outside the damage the surface already holds the last
+        ;; frame, which is the whole premise. Clearing would be the bug.
+        (draw surface (append (list (list :clip-push (rect-x damage) (rect-y damage)
+                                          (rect-width damage) (rect-height damage)))
+                              display-list
+                              (list (list :clip-pop))))
+        (progn (clear surface +white+)
+               (draw surface display-list))))
   backend)

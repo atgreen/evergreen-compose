@@ -412,8 +412,18 @@ drawText call, with real shaping and antialiasing."
   (let ((canvas (canvas-backend-canvas backend)))
     (values (canvas-width canvas) (canvas-height canvas))))
 
-(defmethod present ((backend canvas-backend) display-list)
-  (canvas-draw (canvas-backend-canvas backend) display-list)
+(defmethod present ((backend canvas-backend) display-list &optional damage)
+  ;; Skia rejects a draw outside the clip by its bounds, which is where the
+  ;; saving is: a blurred shadow costs 1.5-2.5ms to compute and nothing at all
+  ;; to reject. The bitmap is never cleared -- the root's background fill is what
+  ;; covers it -- so outside the damage it still holds the last frame.
+  (canvas-draw (canvas-backend-canvas backend)
+               (if damage
+                   (append (list (list :clip-push (rect-x damage) (rect-y damage)
+                                       (rect-width damage) (rect-height damage)))
+                           display-list
+                           (list (list :clip-pop)))
+                   display-list))
   backend)
 
 (defmethod backend-text-metrics ((backend canvas-backend))

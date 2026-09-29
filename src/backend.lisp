@@ -20,8 +20,16 @@
 (defclass backend () ()
   (:documentation "Something that can put a display list somewhere."))
 
-(defgeneric present (backend display-list)
-  (:documentation "Draw DISPLAY-LIST. Returns the backend."))
+(defgeneric present (backend display-list &optional damage)
+  (:documentation "Draw DISPLAY-LIST, or only the part of it inside DAMAGE.
+
+DAMAGE says that everything outside that rectangle is already correct on the
+backend's own surface, so the operations may be clipped to it. NIL means draw
+everything, which is what a first frame, a resize and a new surface all need.
+
+Clipping rather than skipping: an operation is not known to be inside or outside
+the region without measuring it, and the backends that matter reject an
+out-of-bounds draw far more cheaply than we can decide not to issue it."))
 
 (defgeneric backend-size (backend)
   (:documentation "The backend's drawable size, as width and height."))
@@ -51,5 +59,5 @@ appears -- which is not a hypothetical, it is a bug this framework had.")
 Returns the laid-out tree, which is what hit testing needs."
   (multiple-value-bind (width height) (backend-size backend)
     (let ((placed (layout view 0 0 (constraints 0 width 0 height))))
-      (present backend (render placed))
+      (present backend (render placed) nil)
       placed)))

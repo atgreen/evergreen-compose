@@ -105,14 +105,24 @@ opened at the window's own stride."
 RENDER is a pure function of the tree, so an unchanged tree means the frame on
 screen is still correct and the whole draw can be skipped. That is what keeps an
 event-driven interface responsive: the cost is paid once per change instead of
-continuously, and touches stop queueing behind frames nobody needed."
+continuously, and touches stop queueing behind frames nobody needed.
+
+When it HAS changed, only the part that changed is drawn. The difference between
+this frame's operations and the last one's bounds everything that can look
+different, and the backend's surface already holds the rest."
   (let* ((placed (layout view 0 0 (constraints 0 (host-width host) 0 (host-height host))))
-         (display (render placed)))
+         (display (render placed))
+         (last (host-last-display host)))
     (setf (host-placed host) placed)
-    (unless (equal display (host-last-display host))
-      (setf (host-last-display host) display)
-      (present (host-backend host) display)
-      (host-blit host))))
+    (unless (equal display last)
+      ;; NIL on the first frame, which is exactly right: with nothing behind it
+      ;; there is nothing correct to keep, and everything must be drawn.
+      (let ((damage (when last
+                      (display-damage display last
+                                      (rect 0 0 (host-width host) (host-height host))))))
+        (setf (host-last-display host) display)
+        (present (host-backend host) display damage)
+        (host-blit host)))))
 
 (defun host-pump-touches (host)
   "Drain the touch queue and dispatch. Returns true if anything changed.
