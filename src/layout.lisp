@@ -63,22 +63,44 @@ A node's identity is stable within one pass, which is all the memo needs to
 live for, and it is exactly what makes the reuse legitimate: the same list
 object under the same constraints has the same size by construction.")
 
+(defvar *measure-calls* 0 "Diagnostic: MEASURE calls since it was last zeroed.")
+(defvar *measure-misses* 0 "Diagnostic: of those, the ones that were not memoised.")
+
 (defun measure (view &optional (constraints (unbounded)))
   "The size VIEW takes under CONSTRAINTS, as width and height."
+  (incf *measure-calls*)
   (check-view view)
-  (let* ((*stacked* (or *stacked* (make-hash-table :test #'eq)))
-         (cache (or *measured* (make-hash-table :test #'eq)))
-         (key (list (constraints-min-width constraints)
-                    (constraints-max-width constraints)
-                    (constraints-min-height constraints)
-                    (constraints-max-height constraints)))
-         (entries (gethash view cache))
-         (hit (assoc key entries :test #'equal)))
-    (if hit
-        (values (cadr hit) (cddr hit))
-        (multiple-value-bind (w h) (%measure view constraints)
-          (setf (gethash view cache) (cons (cons key (cons w h)) entries))
-          (values w h)))))
+  (if *measured*
+      (%measure-memoised view constraints)
+      ;; Called outside a LAYOUT -- a test, or a widget sizing something for
+      ;; itself. Binding here rather than on every call is the point: a special
+      ;; rebind is ~2.5us and this is the hot path of the whole framework.
+      (let ((*measured* (make-hash-table :test #'eq))
+            (*stacked* (make-hash-table :test #'eq)))
+        (%measure-memoised view constraints))))
+
+(defun %measure-memoised (view constraints)
+  (let ((min-width (constraints-min-width constraints))
+        (max-width (constraints-max-width constraints))
+        (min-height (constraints-min-height constraints))
+        (max-height (constraints-max-height constraints))
+        (entries (gethash view *measured*)))
+    ;; Walked rather than ASSOCed against a freshly consed key: building the key
+    ;; cost an allocation on every call including the hits, and EQUAL on two
+    ;; four-element lists cost more than comparing four numbers.
+    (let ((hit (loop for entry in entries
+                     when (and (eql (first entry) min-width)
+                               (eql (second entry) max-width)
+                               (eql (third entry) min-height)
+                               (eql (fourth entry) max-height))
+                       return entry)))
+      (if hit
+          (values (fifth hit) (sixth hit))
+          (multiple-value-bind (w h) (progn (incf *measure-misses*)
+                                            (%measure view constraints))
+            (setf (gethash view *measured*)
+                  (cons (list min-width max-width min-height max-height w h) entries))
+            (values w h))))))
 
 (defgeneric measure-kind (kind view constraints)
   (:documentation "The content size of a VIEW of KIND, before its own :WIDTH or
@@ -352,13 +374,14 @@ placement pass a cache hit at every level and the whole walk linear."
                                  (+ (* gap (max 0 (1- (length kids))))
                                     (loop for size in sizes
                                           sum (main-of row (first size) (second size))))))
+                   ;; RIGHT and BOTTOM are already in hand from the binding
+                   ;; above. Asking PADDING-OF for them again cost four more
+                   ;; calls per container, and a call here is ~2us.
                    (inner-main (progn ignore
                                       (- (main-of row width height)
-                                         (main-of row (+ left (nth-value 1 (padding-of view)))
-                                                  (+ top (nth-value 2 (padding-of view)))))))
+                                         (main-of row (+ left right) (+ top bottom)))))
                    (inner-cross (- (cross-of row width height)
-                                   (cross-of row (+ left (nth-value 1 (padding-of view)))
-                                             (+ top (nth-value 2 (padding-of view))))))
+                                   (cross-of row (+ left right) (+ top bottom))))
                    ;; :OFFSET-Y and :OFFSET-X move the CHILDREN without moving
                    ;; the container. With :CLIP that is exactly a scroll view,
                    ;; and it needs no new primitive: the container is still a

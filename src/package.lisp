@@ -11,7 +11,7 @@
    :view-kind :view-props :view-children :view-prop
    ;; layout
    :measure :layout :laid-out :laid-out-view :laid-out-frame :laid-out-children
-   :constraints :unbounded :tight
+   :constraints :unbounded :tight :*measure-calls* :*measure-misses*
    ;; display list
    :render :flatten-to-rects :colour :measure-kind :render-kind :round-rect-spans
    :shadow-rects :shadow-op :*shadow-colour* :path-spans :flatten-path

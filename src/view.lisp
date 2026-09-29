@@ -12,6 +12,9 @@
 ;;; vocabulary for their own domain without the framework offering an extension
 ;;; point, because the vocabulary is just functions that return lists.
 
+(defvar *kinds* (make-hash-table :test #'eq)
+  "Symbol to keyword, so a kind is interned once per symbol rather than per use.")
+
 (defun view-kind (view)
   "The node's kind as a KEYWORD, whatever package the tree was written in.
 
@@ -20,8 +23,20 @@ there reads as CL-USER::COLUMN and not BLISS::COLUMN. Dispatching on the symbol
 itself would therefore work only for trees built inside this package -- which is
 exactly the bug that took the first Android run down. Interning the name as a
 keyword makes the vocabulary package-independent, which is what a data DSL needs
-and what keywords exist for."
-  (intern (symbol-name (first view)) :keyword))
+and what keywords exist for.
+
+Interned ONCE per symbol, though, not once per use. Measured on release x86-64,
+INTERN plus SYMBOL-NAME is 6.4us, and layout asks for a node's kind five or six
+times per pass -- measure, place, ROW-P, STACK-P -- so a screen of forty nodes
+spent well over a millisecond a frame re-deriving an answer that cannot change.
+A symbol is EQ to itself, so one table lookup replaces all of it, and the table
+holds one entry per word in the vocabulary rather than one per node."
+  (let ((symbol (first view)))
+    (if (keywordp symbol)
+        symbol
+        (or (gethash symbol *kinds*)
+            (setf (gethash symbol *kinds*)
+                  (intern (symbol-name symbol) :keyword))))))
 (defun view-props (view) (second view))
 (defun view-children (view) (cddr view))
 
