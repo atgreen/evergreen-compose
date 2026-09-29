@@ -1337,12 +1337,43 @@ identity, so a test that wants to compare two rectangles must compare numbers."
                                       0 0)
                               (lambda (n) (eq (node-prop n :id) :field)))))
 
+(defun test-saved-state ()
+  (format t "state that outlives the process~%")
+  ;; The default store holds the string in this image, which is what makes any
+  ;; of this testable without a phone.
+  (let ((*state-store* (let ((held nil))
+                         (list :read (lambda () held)
+                               :write (lambda (text) (setf held text))))))
+    (check "nothing saved yet reads as the default" :cold (restore-state :cold))
+    (save-state '(:name "Ada" :city "London" :tab 2 :volume 1/2))
+    (check "a plist comes back EQUAL"
+           '(:name "Ada" :city "London" :tab 2 :volume 1/2) (restore-state))
+    ;; A RATIO, not a float: the demo's volume is one, and PRIN1 is what keeps
+    ;; it exact across the round trip.
+    (check "and the ratio is still a ratio" 1/2 (getf (restore-state) :volume))
+    ;; Text is user text. A quote or a backslash in it must not end the string
+    ;; early, which is the whole reason for PRIN1 rather than a hand-rolled
+    ;; format.
+    (save-state (list :city "O\"Brien \\ \"quoted\""))
+    (check "quotes and backslashes survive"
+           "O\"Brien \\ \"quoted\"" (getf (restore-state) :city))
+    (save-state nil)
+    (check "saving NIL reads back as NIL, not as the default" nil (restore-state :cold))
+    ;; Yesterday's build wrote a shape this one cannot read. Starting empty
+    ;; beats refusing to start.
+    (funcall (getf *state-store* :write) "(:unbalanced ")
+    (check "an unreadable blob yields the default instead of signalling"
+           :cold (restore-state :cold))
+    (funcall (getf *state-store* :write) "#.(error \"never\")")
+    (check "and #. is not evaluated on the way back in"
+           :cold (restore-state :cold))))
+
 (defun run-tests ()
   (setf *failures* 0 *checks* 0)
   (test-geometry) (test-paint) (test-font)
   (test-layout) (test-render) (test-raster)
   (test-input) (test-widgets) (test-constraints) (test-backend) (test-extension)
-  (test-utf8) (test-stacking) (test-text-field) (test-elevation) (test-stretch) (test-paths) (test-horizontal-list) (test-memo-across-frames) (test-damage) (test-damaged-drawing) (test-design-system) (test-screen-composites) (test-svg) (test-borders) (test-fling) (test-semantics) (test-overlays) (test-nested-scroll) (test-bring-into-view)
+  (test-utf8) (test-stacking) (test-text-field) (test-elevation) (test-stretch) (test-paths) (test-horizontal-list) (test-memo-across-frames) (test-damage) (test-damaged-drawing) (test-design-system) (test-screen-composites) (test-svg) (test-borders) (test-fling) (test-semantics) (test-overlays) (test-nested-scroll) (test-bring-into-view) (test-saved-state)
   (test-composites) (test-corners-and-clipping) (test-scroll) (test-clock) (test-virtual-list) (test-image)
   (format t "~%~D checks, ~D failures~%" *checks* *failures*)
   *failures*)

@@ -13,6 +13,15 @@
 ;;;; An application supplies a function of (width height) returning a view. That
 ;;;; is the whole contract.
 
+;;; Loading this file IS the installation, the same as SRC/IME.LISP: this is
+;;; the Android half of SRC/STATE.LISP. The runtime keeps the bytes and hands
+;;; them to onSaveInstanceState; nothing here touches a file, and nothing here
+;;; can be asked for state at an awkward moment, because the answer is always
+;;; already there.
+(setf *state-store*
+      (list :read (lambda () (android:saved-state))
+            :write (lambda (text) (android:save-state text))))
+
 (defvar *pressed* nil
   "The :ID currently held down, or NIL.
 

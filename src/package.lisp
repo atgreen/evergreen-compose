@@ -45,6 +45,8 @@
    :icon :icon-button :icon-names :*icons* :thick-line :circle-path
    ;; which field the keyboard is bound to
    :*text-input* :focus-text-field :blur-text-field :pump-text-input :text-focus-id
+   ;; state that outlives the process
+   :*state-store* :save-state :restore-state
    ;; JNI, and the Canvas backend over Android's own Skia
    :jni-start :jni-check :jni-find-class :jni-method :jni-string
    :jni-text :jni-call-boolean :jni-call-int :jni-field :jni-int-field :jni-call-static-int :jni-release :with-local-refs :*jni-calls*

@@ -140,6 +140,47 @@
         (bliss:snackbar (format nil "Volume ~D%" (round (* 100 *volume*)))
                         :action "Undo")))
 
+;;;; What survives the process.
+;;;;
+;;;; Android destroys this Activity to reclaim memory and recreates it later
+;;;; looking exactly as it did. Everything the user touched is in specials, and
+;;;; specials die with the image, so they are printed into the platform's
+;;;; saved-state blob whenever they change.
+
+(defparameter *saved* :none
+  "The last state handed to the platform, so an unchanged frame writes nothing.
+:NONE rather than NIL so the very first comparison cannot accidentally match.")
+
+(defun app-state ()
+  (list :name *name* :city *city* :tab *tab* :volume *volume*
+        :scheme *scheme* :page *page* :shelf *shelf*))
+
+(defun restore-app-state ()
+  "Put back what the previous instance had. Returns it, or NIL on a cold start."
+  (let ((state (bliss:restore-state)))
+    (when state
+      (setf *name*   (getf state :name "")
+            *city*   (getf state :city "")
+            *tab*    (getf state :tab 0)
+            ;; A RATIO, and still one: PRIN1 wrote 1/2, not 0.5.
+            *volume* (getf state :volume 1/2)
+            *scheme* (getf state :scheme :dark)
+            *page*   (getf state :page 0)
+            *shelf*  (getf state :shelf 0))
+      (bliss:use-scheme *scheme*)
+      ;; The caches hold colours and text from the old state.
+      (setf *chrome* nil *fields* nil))
+    (setf *saved* (app-state))
+    state))
+
+(defun keep-app-state ()
+  "Hand the platform the current state if it has moved. Called once per drawn
+frame: EQUAL on a seven-element list is cheap, PRIN1 is not."
+  (let ((now (app-state)))
+    (unless (equal now *saved*)
+      (setf *saved* now)
+      (bliss:save-state now))))
+
 (defparameter *insets* '(0 0 0 0))
 (defparameter *page* 0)
 (defparameter *reveal* nil)
@@ -287,6 +328,7 @@ how the whole phone responds to touch."
 (defun android-main (window)
   (let ((host (bliss:open-android-host window)))
     (a11y-check host)
+    (android:log (format nil "restored ~S" (restore-app-state)))
     (loop while (android:running-p)
           do (when (timing :touches (bliss:host-pump-touches host)) (bliss:invalidate))
              ;; What the system is covering changes when the keyboard opens and
@@ -333,5 +375,6 @@ how the whole phone responds to touch."
                      (when scroller
                        (setf *page* (bliss:scroll-by scroller *page* delta))
                        (android:log (format nil "revealed ~A by ~D" id delta))
-                       (bliss:invalidate))))))
+                       (bliss:invalidate)))))
+               (keep-app-state))
              (sleep 0.008))))
