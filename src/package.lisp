@@ -14,6 +14,7 @@
    :constraints :unbounded :tight :*measure-calls* :*measure-misses* :forget-layout
    ;; display list
    :render :flatten-to-rects :colour :measure-kind :render-kind :round-rect-spans
+   :parse-svg-path :svg-path-strings
    :shadow-rects :shadow-op :*shadow-colour* :path-spans :flatten-path
    :record-placement :placement-overlap :display-damage :op-bounds
    ;; backends

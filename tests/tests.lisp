@@ -1034,12 +1034,59 @@ identity, so a test that wants to compare two rectangles must compare numbers."
     (check "with its on-colour too"
            (theme :on-surface-variant) (view-prop (first (view-children off)) :colour))))
 
+(defparameter +search-svg+
+  "<svg xmlns=\"http://www.w3.org/2000/svg\" height=\"24\" viewBox=\"0 0 24 24\" width=\"24\"><path d=\"M0 0h24v24H0z\" fill=\"none\"/><path d=\"M15.5 14h-.79l-.28-.27C15.41 12.59 16 11.11 16 9.5 16 5.91 13.09 3 9.5 3S3 5.91 3 9.5 5.91 16 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19l-4.99-5zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14z\"/></svg>"
+  "Material's search icon, verbatim, including the bounding box it opens with.")
+
+(defun test-svg ()
+  (format t "svg~%")
+  ;; SVG packs numbers together and a sign or a second dot starts a new one.
+  (check "numbers run together" '(-0.79 0.5) (bliss::%svg-tokens "-.79.5"))
+  (check "and commands separate from them" '(#\M 1 2 #\z) (bliss::%svg-tokens "M1 2z"))
+  (check "an absolute move and line"
+         '((:move 1 2) (:line 3 4)) (parse-svg-path "M1 2L3 4"))
+  ;; Pairs after an M are LINES, not more moves. Getting this wrong makes every
+  ;; polygon into a row of disconnected points.
+  (check "further pairs after a move are lines"
+         '((:move 1 2) (:line 3 4) (:line 5 6)) (parse-svg-path "M1 2 3 4 5 6"))
+  (check "relative commands become absolute"
+         '((:move 1 1) (:line 3 1) (:line 3 4)) (parse-svg-path "m1 1h2v3"))
+  (check "close returns to where the subpath started"
+         '((:move 1 1) (:line 5 1) (:close) (:line 1 3))
+         (parse-svg-path "M1 1H5zv2"))
+  (check "a cubic keeps all three points"
+         '((:move 0 0) (:cubic 1 2 3 4 5 6)) (parse-svg-path "M0 0C1 2 3 4 5 6"))
+  ;; S mirrors the previous control point through the point they share, which is
+  ;; what makes a smooth join smooth.
+  (check "a smooth cubic reflects the last control"
+         '((:move 0 0) (:cubic 1 1 2 2 4 4) (:cubic 6 6 7 7 8 8))
+         (parse-svg-path "M0 0C1 1 2 2 4 4S7 7 8 8"))
+  (check "with no curve before it, there is nothing to mirror"
+         '((:move 4 4) (:cubic 4 4 7 7 8 8)) (parse-svg-path "M4 4S7 7 8 8"))
+  (check "arcs say so rather than being silently wrong"
+         t (handler-case (progn (parse-svg-path "M0 0A1 1 0 0 1 2 2") nil) (error () t)))
+  ;; The trap: every Material icon opens with a full-size box that must not be
+  ;; drawn, or the icon becomes a solid square.
+  (let ((painted (svg-path-strings +search-svg+)))
+    (check "the fill=none bounding box is skipped" 1 (length painted))
+    (check-true "and what is left is the icon"
+                (> (length (first painted)) 100)))
+  ;; And the real thing, end to end.
+  (let ((commands (parse-svg-path (first (svg-path-strings +search-svg+)))))
+    (check-true "the search icon parses" (> (length commands) 10))
+    (check "it starts where the file says" '(:move 15.5 14) (first commands))
+    (check "it is closed" :close (first (car (last commands))))
+    ;; Two subpaths -- the glass and the hole in it -- which is what the nonzero
+    ;; winding rule is for, and is why our :RING already works.
+    (check "and it has two subpaths, the glass and its hole"
+           2 (count :close commands :key #'first))))
+
 (defun run-tests ()
   (setf *failures* 0 *checks* 0)
   (test-geometry) (test-paint) (test-font)
   (test-layout) (test-render) (test-raster)
   (test-input) (test-widgets) (test-constraints) (test-backend) (test-extension)
-  (test-utf8) (test-stacking) (test-text-field) (test-elevation) (test-stretch) (test-paths) (test-horizontal-list) (test-memo-across-frames) (test-damage) (test-damaged-drawing) (test-design-system) (test-screen-composites)
+  (test-utf8) (test-stacking) (test-text-field) (test-elevation) (test-stretch) (test-paths) (test-horizontal-list) (test-memo-across-frames) (test-damage) (test-damaged-drawing) (test-design-system) (test-screen-composites) (test-svg)
   (test-composites) (test-corners-and-clipping) (test-scroll) (test-clock) (test-virtual-list) (test-image)
   (format t "~%~D checks, ~D failures~%" *checks* *failures*)
   *failures*)

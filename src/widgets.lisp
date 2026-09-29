@@ -404,7 +404,11 @@ larger, wound against it, and the overlap cancels."
                         (thick-line 14 14 20 20)))
   "The built-in icons, as path commands in a 24-unit box.")
 
-(defun icon-names () (loop for (name nil) on *icons* by #'cddr collect name))
+(defun icon-names ()
+  "Every icon's name, once. A generated set may shadow a built-in of the same
+name, and both are still in the list."
+  (remove-duplicates (loop for (name nil) on *icons* by #'cddr collect name)
+                     :from-end t))
 
 (defun icon (name &key (size 24) colour)
   "One of *ICONS*, as a view."

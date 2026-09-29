@@ -77,6 +77,10 @@ handler is a *property*, not a widget, so any node is touchable:
 (column (:on-press #'choose) …)
 ```
 
+Icons are path data, converted from Material's SVG sources offline by
+`tools/make-icons.sh` — so an icon is Lisp you can print and diff, not an opaque
+glyph, and an application ships the ones it names rather than a whole font.
+
 Adding a genuinely new primitive means a `measure-kind` and a `render-kind`
 method. Adding a widget means writing a function, and the framework does not need
 to be told.
@@ -96,3 +100,7 @@ survives a rotation. Those are known, not overlooked, and they are filed.
 ## Licence
 
 MIT OR Apache-2.0.
+
+Bliss also ships geometry generated from [Material Design
+Icons](https://github.com/google/material-design-icons), which is Apache-2.0 and
+Copyright Google. See [LICENSES.md](LICENSES.md).
