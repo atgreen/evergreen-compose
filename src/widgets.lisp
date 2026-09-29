@@ -115,7 +115,7 @@ passes it in, which is what lets the whole interface stay a function of a model.
                                  (pressed (theme :primary-pressed))
                                  (t (theme :primary)))
               :radius ,(theme-value :radius 0)
-              :id ,id
+              :id ,id :role :button :label ,label :merge t
               :align :center :cross-align :center
               ,@(when grow (list :grow grow))
               ,@(unless disabled (list :on-press on-press)))
@@ -136,6 +136,7 @@ every container."
 
 (defun text (string &key (size 2) (colour nil))
   `(label (:text ,string :size ,(type-size size)
+           :role :text :label ,string
            :colour ,(or colour (theme :on-surface)))))
 
 (defun toggle (label &key id on-press on (size 3) grow)
@@ -305,7 +306,8 @@ characters nobody typed, so the editor is the truth and this only draws it."
            ;; A focused field says so with a ring, which is the thing every
            ;; toolkit does and we could not until there were borders.
            ,@(when focused (list :border 2 :border-colour (theme :primary)))
-           :id ,id
+           :id ,id :role :field :merge t
+           :label ,(or placeholder "") :value ,(or value "")
            ,@(when grow (list :grow grow))
            ,@(when id (list :on-press press)))
        (row (:gap 1 :cross-align :center)
@@ -418,12 +420,13 @@ name, and both are still in the list."
   (remove-duplicates (loop for (name nil) on *icons* by #'cddr collect name)
                      :from-end t))
 
-(defun icon (name &key (size 24) colour)
+(defun icon (name &key (size 24) colour label)
   "One of *ICONS*, as a view."
   (let ((commands (getf *icons* name)))
     (unless commands
       (error "No such icon: ~S. There are ~{~S~^ ~}." name (icon-names)))
     `(path (:commands ,commands :size ,size :view-box 24
+            ,@(when label (list :role :image :label label))
             :colour ,(or colour (theme :on-surface))))))
 
 (defun icon-button (name &key id on-press (size 24) colour background)
@@ -450,6 +453,8 @@ control keep their own sizes and the headline takes whatever is left. That is
 the arrangement every list row in every toolkit makes, and it is one :GROW."
   `(row (:padding ,(space :large) :gap ,(space :medium)
          :cross-align :center :stretch t
+         :role :item :merge t
+         :label ,headline ,@(when supporting (list :value supporting))
          ,@(when id (list :id id))
          ,@(when on-press (list :on-press on-press)))
      ,@(when leading (list leading))
@@ -491,6 +496,7 @@ outline is a border and a view cannot have one yet (bliss-jfq)."
   `(row (:padding ,(space :small) :gap ,(space :tight) :radius 999
          :cross-align :center
          :background ,(if selected (theme :primary) (theme :surface-variant))
+         :role :button :merge t :label ,label :value ,selected
          ,@(when id (list :id id))
          ,@(when on-press (list :on-press on-press)))
      ,@(when icon
@@ -501,7 +507,7 @@ outline is a border and a view cannot have one yet (bliss-jfq)."
 
 ;;; ── Selection ─────────────────────────────────────────────────────────
 
-(defun checkbox (checked &key id on-press (size 20))
+(defun checkbox (checked &key id on-press label (size 20))
   "A box that is an outline when empty and a filled tick when not.
 
 The empty state is why :BORDER exists. It is an outline round NOTHING, which
@@ -511,21 +517,24 @@ checkbox is not on the surface it guessed -- inside a card, say."
   (if checked
       `(box (:width ,size :height ,size :radius 4
              :background ,(theme :primary)
+             :role :checkbox :value t ,@(when label (list :label label))
              :align :center :cross-align :center
              ,@(when id (list :id id))
              ,@(when on-press (list :on-press on-press)))
          ,(icon :check :size (- size 4) :colour (theme :on-primary)))
       `(box (:width ,size :height ,size :radius 4
              :border 2 :border-colour ,(theme :on-surface-variant)
+             :role :checkbox :value nil ,@(when label (list :label label))
              ,@(when id (list :id id))
              ,@(when on-press (list :on-press on-press))))))
 
-(defun radio (selected &key id on-press (size 20))
+(defun radio (selected &key id on-press label (size 20))
   "A ring, with a dot in it when chosen. Always outlined, unlike a checkbox,
 which is what tells the two apart at a glance even before the shape does."
   `(box (:width ,size :height ,size :radius ,(floor size 2)
          :border 2
          :border-colour ,(if selected (theme :primary) (theme :on-surface-variant))
+         :role :radio :value ,selected ,@(when label (list :label label))
          :align :center :cross-align :center
          ,@(when id (list :id id))
          ,@(when on-press (list :on-press on-press)))

@@ -29,6 +29,8 @@
    ;; the frame clock
    :now :frame-delta :animating :approach :ease :*frame-time* :*frame-delta*
    ;; input and dispatch
+   :semantics :semantic-p :merges-p :describe-node :+roles+
+   :announce :announce-node :accessibility-enabled-p :exploring-by-touch-p :describe-screen
    :hit-test :dispatch :node-prop :scale-point :scroll-by :*drag-slop*
    :fling-step :flinging-p :drag-velocity :*fling-friction* :*fling-minimum*
    :laid-out-content

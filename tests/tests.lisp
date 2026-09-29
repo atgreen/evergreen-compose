@@ -1176,12 +1176,48 @@ identity, so a test that wants to compare two rectangles must compare numbers."
       (check "and going no further" 20 offset)
       (check "it gives up the speed too" 0.0 velocity))))
 
+(defun test-semantics ()
+  (format t "semantics~%")
+  ;; The reading order IS the tree order, depth first, which is one of the
+  ;; arguments for the view being a tree at all.
+  (let* ((screen (layout `(column ()
+                            ,(text "Settings")
+                            ,(list-item "Wi-Fi" :supporting "Connected")
+                            ,(button "Save" :id :save)
+                            ,(checkbox t :label "Notify")
+                            ,(radio nil :label "Daily"))
+                         0 0 (constraints 0 200 0 400)))
+         (found (semantics screen)))
+    (check "everything that says what it means is found" 5 (length found))
+    (check "in reading order"
+           '("Settings" "Wi-Fi" "Save" "Notify" "Daily") (mapcar #'first found))
+    (check "with the roles the widgets gave them"
+           '(:text :item :button :checkbox :radio) (mapcar #'second found))
+    (check "a checkbox carries its state" t (third (fourth found)))
+    (check "and an unselected radio carries that" nil (third (fifth found)))
+    ;; A row speaks for its parts. Without that it reads as itself AND as its
+    ;; headline AND as its supporting line: three times the words.
+    (check "a merged row hides its own text" "Connected" (third (second found))))
+  ;; A decorative icon says nothing, which is the right default: a reader that
+  ;; announces every chevron is worse than one that announces none.
+  (check "an unlabelled icon is silent" 0 (length (semantics (layout (icon :check) 0 0))))
+  (check "a labelled one is not"
+         '("Done") (mapcar #'first (semantics (layout (icon :check :label "Done") 0 0))))
+  ;; Name, then what it is, then what it says -- the order every reader uses.
+  (check "a described node reads as a reader would say it"
+         "Wi-Fi, switch, on" (describe-node "Wi-Fi" :switch t))
+  (check "with no value, it stops after the role"
+         "Save, button" (describe-node "Save" :button nil))
+  (check "a value that is a string is spoken as one"
+         "City, field, London" (describe-node "City" :field "London"))
+  (check "and a label alone is just the label" "Settings" (describe-node "Settings" nil nil)))
+
 (defun run-tests ()
   (setf *failures* 0 *checks* 0)
   (test-geometry) (test-paint) (test-font)
   (test-layout) (test-render) (test-raster)
   (test-input) (test-widgets) (test-constraints) (test-backend) (test-extension)
-  (test-utf8) (test-stacking) (test-text-field) (test-elevation) (test-stretch) (test-paths) (test-horizontal-list) (test-memo-across-frames) (test-damage) (test-damaged-drawing) (test-design-system) (test-screen-composites) (test-svg) (test-borders) (test-fling)
+  (test-utf8) (test-stacking) (test-text-field) (test-elevation) (test-stretch) (test-paths) (test-horizontal-list) (test-memo-across-frames) (test-damage) (test-damaged-drawing) (test-design-system) (test-screen-composites) (test-svg) (test-borders) (test-fling) (test-semantics)
   (test-composites) (test-corners-and-clipping) (test-scroll) (test-clock) (test-virtual-list) (test-image)
   (format t "~%~D checks, ~D failures~%" *checks* *failures*)
   *failures*)

@@ -12,6 +12,7 @@
                              (:file "layout")
                              (:file "clock")
                              (:file "input")
+                             (:file "semantics")
                              (:file "text-input")
                              (:file "widgets")
                              (:file "icons-material")

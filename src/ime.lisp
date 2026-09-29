@@ -201,6 +201,22 @@ while one is pending. Every main-thread call therefore ends here."
                  "a throwable that would not describe itself")))))
 
 (defun main-call (index arguments &optional (result :pointer))
+  "Call JNI function INDEX on the main thread.
+
+EVERY OBJECT IN ARGUMENTS MUST BE A GLOBAL REFERENCE. A local reference belongs
+to the thread that made it and to no other, so handing one across is not merely
+unsupported -- CheckJNI aborts the process:
+
+  JNI DETECTED ERROR IN APPLICATION: jobject is an invalid local reference
+  (reference outside the table)
+
+which is how this was found, by passing DECOR-VIEW's result straight over. The
+fix is either JNI-GLOBAL on the way in, or fetching the object on the main
+thread with MAIN-OBJECT, which returns a global already.
+
+This is the mirror of the rule in %MAIN-CALL, and the two are easy to confuse:
+a local made THERE dies when the visit ends, and a local made HERE was never
+valid there at all."
   (prog1 (%main-call index arguments :result result) (main-check)))
 
 (defun main-object (index arguments)

@@ -19,6 +19,12 @@ def check(path):
             if starts: starts.pop()
             if depth<0: print(f"{path}: EXTRA ) at line {line}"); return
         i+=1
+    # An unterminated string is the other way a file reads as nonsense. It does
+    # not unbalance the parens -- a stray quote just swaps which half of the file
+    # is code and which is text -- so this is its own check. It catches an ODD
+    # number of stray quotes; an even number (a quoted phrase inside a docstring)
+    # still slips through, and only running the file finds that.
+    if in_str: print(f"{path}: UNTERMINATED STRING (opened and never closed)"); return
     if depth: print(f"{path}: depth {depth}, unclosed opened at lines {starts[-4:]}")
     else: print(f"{path}: balanced")
 for p in sys.argv[1:]: check(p)

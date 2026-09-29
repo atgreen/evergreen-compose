@@ -192,7 +192,14 @@ the widget the press armed -- which is what lets a finger slide off to cancel."
                    (case action
                      ;; Both edges owe a frame: a press changes the held
                      ;; highlight even when it fires nothing.
-                     (0 (setf *pressed* (let ((hit (hit))) (and hit (node-prop hit :id)))
+                     (0 (when (and placed (accessibility-enabled-p))
+                          ;; A second hit test, and only when something is
+                          ;; listening: with no reader running this costs one
+                          ;; boolean, and with one running a tree walk per press
+                          ;; is nothing against speaking a sentence.
+                          (let ((spoken (hit-test placed lx ly #'semantic-p)))
+                            (when spoken (announce-node spoken))))
+                        (setf *pressed* (let ((hit (hit))) (and hit (node-prop hit :id)))
                               acted t
                               (host-dragging host) nil
                               (host-drag-origin host) (cons lx ly)
