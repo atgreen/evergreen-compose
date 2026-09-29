@@ -1547,12 +1547,112 @@ two" 1 nil)))
     (check-true "a centred line is indented"
                 (plusp (second (first centred))))))
 
+(defun test-taps ()
+  (format t "press, long press and double tap~%")
+  ;; The machine is driven by hand here, with an invented clock, which is the
+  ;; point of having it separate: a gesture decided by half a second is
+  ;; otherwise only testable by holding a finger on a phone.
+  (let* ((plain (laid-out '(box (:id :plain :on-press t)) (rect 0 0 10 10) '()))
+         (holds (laid-out '(box (:id :holds :on-press t :on-long-press t)) (rect 0 0 10 10) '()))
+         (doubles (laid-out '(box (:id :doubles :on-press t :on-double-press t)) (rect 0 0 10 10) '())))
+    ;; A node with no :ON-DOUBLE-PRESS fires the instant the finger lifts. This
+    ;; is the compatibility rule: everything that existed before behaves as it
+    ;; did, and it is the check that would fail if the deferral leaked.
+    (multiple-value-bind (state gesture node)
+        (tap-step (tap-step '() :down :node plain :now 0) :up :node plain :now 1/10)
+      (declare (ignore state))
+      (check "a plain press fires on release" :press gesture)
+      (check "and names its node" plain node))
+    ;; Time alone fires a long press, with the finger still down.
+    (let ((held (tap-step '() :down :node holds :now 0)))
+      (check "nothing fires before the threshold" nil
+             (nth-value 1 (tap-step held :tick :now 4/10)))
+      (multiple-value-bind (state gesture node) (tap-step held :tick :now 6/10)
+        (check "and a long press fires after it" :long-press gesture)
+        (check "on the node that was held" holds node)
+        ;; Once only: a tick every 8ms would otherwise fire it sixty times.
+        (check "it does not fire twice" nil
+               (nth-value 1 (tap-step state :tick :now 9/10)))
+        ;; The lift that ends a long press is not also a tap.
+        (check "and the release is not a press" nil
+               (nth-value 1 (tap-step state :up :node holds :now 1)))))
+    ;; A node with no long-press handler is not held, however long it is held.
+    (check "a node that does not listen is never long-pressed" nil
+           (nth-value 1 (tap-step (tap-step '() :down :node plain :now 0)
+                                  :tick :now 10)))
+    ;; A node that CAN tell single from double must wait to find out, so the
+    ;; first lift fires nothing.
+    (let ((first-up (nth-value 0 (tap-step (tap-step '() :down :node doubles :now 0)
+                                           :up :node doubles :now 1/10))))
+      (check "the first tap of a doubler waits" nil
+             (nth-value 1 (tap-step (tap-step '() :down :node doubles :now 0)
+                                    :up :node doubles :now 1/10)))
+      ;; Second tap inside the window.
+      (multiple-value-bind (state gesture node)
+          (tap-step (tap-step first-up :down :node doubles :now 2/10)
+                    :up :node doubles :now 25/100)
+        (declare (ignore state))
+        (check "a second tap inside the window is a double" :double-press gesture)
+        (check "on the node tapped twice" doubles node))
+      ;; No second tap: the window closes and it was a single after all.
+      (multiple-value-bind (state gesture node) (tap-step first-up :tick :now 1)
+        (declare (ignore state))
+        (check "and with no second tap it becomes a press" :press gesture)
+        (check "on the same node" doubles node))
+      (check "which does not fire while the window is open" nil
+             (nth-value 1 (tap-step first-up :tick :now 2/10))))
+    ;; A drag cancels the press outright -- a finger that scrolls away from a
+    ;; button must not press it, and must not long-press it either.
+    (let ((dragged (tap-step (tap-step '() :down :node holds :now 0) :cancel)))
+      (check "a cancelled press does not become a long press" nil
+             (nth-value 1 (tap-step dragged :tick :now 10)))
+      (check "nor a press on release" nil
+             (nth-value 1 (tap-step dragged :up :node holds :now 1))))
+    ;; THE TREE IS REBUILT BETWEEN THE TWO TAPS. The second tap is a different
+    ;; structure describing the same thing, so matching on node identity looks
+    ;; right here and never recognises a double tap on a real phone. Rebuild the
+    ;; node to prove the match is by :ID.
+    (let* ((first-frame (laid-out '(box (:id :twice :on-press t :on-double-press t))
+                                  (rect 0 0 10 10) '()))
+           (next-frame (laid-out '(box (:id :twice :on-press t :on-double-press t))
+                                 (rect 0 0 10 10) '()))
+           (after (nth-value 0 (tap-step (tap-step '() :down :node first-frame :now 0)
+                                         :up :node first-frame :now 1/10))))
+      (check-true "the two frames really are different objects"
+                  (not (eq first-frame next-frame)))
+      (check "a double tap survives the tree being rebuilt" :double-press
+             (nth-value 1 (tap-step (tap-step after :down :node next-frame :now 2/10)
+                                    :up :node next-frame :now 22/100))))
+    ;; A node with no :ID cannot be told apart from one frame to the next, so it
+    ;; is never a double tap -- the same rule the armed press has always had.
+    (let* ((anon (laid-out '(box (:on-press t :on-double-press t)) (rect 0 0 10 10) '()))
+           (after (nth-value 0 (tap-step (tap-step '() :down :node anon :now 0)
+                                         :up :node anon :now 1/10))))
+      (check "a node with no id is never double-tapped" nil
+             (nth-value 1 (tap-step (tap-step after :down :node anon :now 2/10)
+                                    :up :node anon :now 22/100))))
+    ;; A second tap on a DIFFERENT node is two singles, not a double.
+    (let ((first-up (nth-value 0 (tap-step (tap-step '() :down :node doubles :now 0)
+                                           :up :node doubles :now 1/10))))
+      (check "a tap on another node is not a double" :press
+             (nth-value 1 (tap-step (tap-step first-up :down :node plain :now 2/10)
+                                    :up :node plain :now 22/100)))))
+  ;; The hit test finds a node that answers ONLY a long press -- it looked for
+  ;; :ON-PRESS alone before, so such a node was invisible to touch.
+  (check-true "a long-press-only node is tappable"
+              (tappable-p (laid-out '(box (:on-long-press t)) (rect 0 0 10 10) '())))
+  (check "and one that answers nothing is not" nil
+         (tappable-p (laid-out '(box ()) (rect 0 0 10 10) '())))
+  ;; Each gesture calls its own property.
+  (check "each gesture names its handler" '(:on-press :on-long-press :on-double-press)
+         (mapcar #'tap-handler '(:press :long-press :double-press))))
+
 (defun run-tests ()
   (setf *failures* 0 *checks* 0)
   (test-geometry) (test-paint) (test-font)
   (test-layout) (test-render) (test-raster)
   (test-input) (test-widgets) (test-constraints) (test-backend) (test-extension)
-  (test-utf8) (test-stacking) (test-text-field) (test-elevation) (test-stretch) (test-paths) (test-horizontal-list) (test-memo-across-frames) (test-damage) (test-damaged-drawing) (test-design-system) (test-screen-composites) (test-svg) (test-borders) (test-fling) (test-semantics) (test-overlays) (test-nested-scroll) (test-bring-into-view) (test-saved-state) (test-platform-view) (test-rounded-clipping) (test-paragraph)
+  (test-utf8) (test-stacking) (test-text-field) (test-elevation) (test-stretch) (test-paths) (test-horizontal-list) (test-memo-across-frames) (test-damage) (test-damaged-drawing) (test-design-system) (test-screen-composites) (test-svg) (test-borders) (test-fling) (test-semantics) (test-overlays) (test-nested-scroll) (test-bring-into-view) (test-saved-state) (test-platform-view) (test-rounded-clipping) (test-paragraph) (test-taps)
   (test-composites) (test-corners-and-clipping) (test-scroll) (test-clock) (test-virtual-list) (test-image)
   (format t "~%~D checks, ~D failures~%" *checks* *failures*)
   *failures*)

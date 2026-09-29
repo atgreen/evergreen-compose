@@ -92,6 +92,28 @@
                                                   (bliss:blur-text-field)))))))
     (cdr *fields*)))
 
+(defun gesture-card (width)
+  "One node with all three tap handlers, reporting which one fired.
+
+The three are genuinely different gestures and the distinction is in the
+timing, so this is the only way to see it work: hold it and the text changes
+before the finger lifts, tap it twice quickly and it says so, tap it once and
+the answer arrives a beat later -- that beat being the double-tap window, which
+a node with an :ON-DOUBLE-PRESS must wait out before it can know."
+  `(column (:padding ,(bliss:space :medium) :width ,width)
+     ,(bliss:card
+       (list (bliss:text "Gestures" :size :title)
+             (bliss:paragraph *gesture* :size 2
+                              :colour (bliss:theme :on-surface-variant)))
+       :id :gestures :stretch t :elevation 2
+       :on-press (lambda (n) (declare (ignore n))
+                   (setf *gesture* "single press") (bliss:invalidate))
+       :on-long-press (lambda (n) (declare (ignore n))
+                        (setf *gesture* "LONG press -- fired with the finger still down")
+                        (bliss:invalidate))
+       :on-double-press (lambda (n) (declare (ignore n))
+                          (setf *gesture* "DOUBLE tap") (bliss:invalidate)))))
+
 (defun blurb (width)
   "A paragraph long enough to need several lines, and a truncated one beside it.
 
@@ -207,6 +229,10 @@ is the z-order limitation in SRC/PLATFORM-VIEW.LISP being honest on screen."
 ;;;; specials die with the image, so they are printed into the platform's
 ;;;; saved-state blob whenever they change.
 
+(defparameter *gesture* "press and hold the card, or tap it twice"
+  "What the last gesture on the demo card was. Text, because the point is to
+SEE which of the three fired.")
+
 (defparameter *saved* :none
   "The last state handed to the platform, so an unchanged frame writes nothing.
 :NONE rather than NIL so the very first comparison cannot accidentally match.")
@@ -279,6 +305,7 @@ frame: EQUAL on a seven-element list is cheap, PRIN1 is not."
                      ,(shelf width)
                      ,(clipped-banner width)
                      ,(blurb (- width 32))
+                     ,(gesture-card (- width 32))
                      ,(web-panel width)
                      ,@(fields))
                   (fourth (chrome))

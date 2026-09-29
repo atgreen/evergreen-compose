@@ -344,7 +344,7 @@ characters nobody typed, so the editor is the truth and this only draws it."
                           :fill ,(theme :primary)))))))))
 
 (defun card (children &key (padding 12) (gap 8) elevation background radius grow stretch
-                             outlined id on-press)
+                             outlined id on-press on-long-press on-double-press)
   "A raised surface with content in it.
 
 The whole widget, which is rather the point. Compose's Card is six lines
@@ -360,7 +360,9 @@ this is the six, and a caller who wants the variants writes them."
             ,@(when grow (list :grow grow))
             ,@(when stretch (list :stretch t))
             ,@(when id (list :id id))
-            ,@(when on-press (list :on-press on-press)))
+            ,@(when on-press (list :on-press on-press))
+            ,@(when on-long-press (list :on-long-press on-long-press))
+            ,@(when on-double-press (list :on-double-press on-double-press)))
      ,@children))
 
 (defun divider (&key (thickness 1) colour)

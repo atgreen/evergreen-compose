@@ -45,6 +45,8 @@
    :icon :icon-button :icon-names :*icons* :thick-line :circle-path
    ;; which field the keyboard is bound to
    :paragraph :wrap-text :wrapped-extent
+   ;; taps
+   :tap-step :tap-handler :tappable-p :*long-press-time* :*double-press-time*
    :*text-input* :focus-text-field :blur-text-field :pump-text-input :text-focus-id
    ;; state that outlives the process
    :*state-store* :save-state :restore-state

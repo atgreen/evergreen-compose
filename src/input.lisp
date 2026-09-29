@@ -216,3 +216,109 @@ SCROLL-BY's delta, so the answer can be handed straight to it."
     (cond ((> item-end view-end) (- item-end view-end))
           ((< item-start view-start) (- item-start view-start))
           (t 0))))
+
+;;; ── Taps: press, long press, double tap ───────────────────────────────
+;;;
+;;; A press is the only gesture the host understood, and it fired on release.
+;;; Long press is how Android has opened context menus since 2008; double tap is
+;;; how every map and photo zooms. Neither can be built on top of :ON-PRESS,
+;;; because both are decided by TIME and an application is never told when the
+;;; finger went down.
+;;;
+;;; The decisions live here, as a function of a state plist and an event, so
+;;; they can be tested with no phone, no clock and no touchscreen -- which is
+;;; the whole difficulty with gestures otherwise. The host supplies the events
+;;; and the time and does nothing else.
+
+(defparameter *long-press-time* 1/2
+  "Seconds a finger must rest, without moving, before :ON-LONG-PRESS fires.
+Android's own ViewConfiguration says 500ms and muscle memory is calibrated to
+it, so this is not a number to have an opinion about.")
+
+(defparameter *double-press-time* 3/10
+  "Seconds within which a second tap on the same node is a double tap.")
+
+(defun tap-step (state event &key node (now 0))
+  "Advance the tap state machine. Returns the new STATE, the gesture, and the
+node it belongs to.
+
+EVENT is :DOWN, :UP, :CANCEL -- a drag took over, or the finger lifted somewhere
+else -- or :TICK, meaning time passed and nothing arrived. TICK is not optional
+garnish: a long press happens when NOTHING happens, so without it the gesture
+can only be noticed by the next unrelated event.
+
+The gesture is NIL, :PRESS, :LONG-PRESS or :DOUBLE-PRESS.
+
+Whether a node HAS a handler decides the timing, which is what keeps this
+compatible: a node with no :ON-DOUBLE-PRESS fires :PRESS the instant the finger
+lifts, exactly as everything did before this existed, while a node that has one
+cannot know a tap was single until the window has passed and must wait.
+
+A double tap is matched on the node's :ID rather than on the node itself,
+because the tree is rebuilt between the two taps and the second one is a
+different structure describing the same thing. A node with no :ID therefore
+cannot be double-tapped, which is the same rule the armed-press check has
+always had."
+  (let ((down (getf state :down))
+        (down-at (getf state :down-at))
+        (fired (getf state :fired))
+        (pending (getf state :pending))
+        (pending-id (getf state :pending-id))
+        (pending-at (getf state :pending-at)))
+    (flet ((keep (&rest overrides)
+             (append overrides
+                     (list :down down :down-at down-at :fired fired
+                           :pending pending :pending-id pending-id
+                           :pending-at pending-at))))
+      (ecase event
+        ;; A press does not disturb a pending tap: resolving that pending tap
+        ;; against the UP still to come is how a double tap is recognised.
+        (:down (values (keep :down node :down-at now :fired nil) nil nil))
+        ;; The gesture is somebody else's now. A pending tap survives, because
+        ;; a drag after a tap is not a double tap but does not un-tap the first.
+        (:cancel (values (keep :down nil :down-at nil :fired nil) nil nil))
+        (:tick
+         (cond ((and down (not fired) (node-prop down :on-long-press)
+                     (>= (- now down-at) *long-press-time*))
+                (values (keep :fired t) :long-press down))
+               ;; The window closed with no second tap, so it was a single one
+               ;; after all. This is the deferred half of the double-tap rule.
+               ((and pending (> (- now pending-at) *double-press-time*))
+                (values (keep :pending nil :pending-id nil :pending-at nil)
+                        :press pending))
+               (t (values state nil nil))))
+        (:up
+         (cond
+           ;; The long press already fired; the lift that ends it is not a tap.
+           (fired (values (keep :down nil :down-at nil :fired nil) nil nil))
+           ((null down) (values state nil nil))
+           ;; BY :ID, NOT BY IDENTITY. The tree is rebuilt every frame, and the
+           ;; first tap invalidates, so by the time the second arrives the node
+           ;; is a different structure describing the same thing. EQ on the
+           ;; node passed every desktop test -- where the same object is handed
+           ;; in twice -- and never once recognised a double tap on the phone.
+           ((and pending-id (eql pending-id (node-prop node :id))
+                 (<= (- now pending-at) *double-press-time*))
+            (values (keep :down nil :down-at nil
+                          :pending nil :pending-id nil :pending-at nil)
+                    :double-press node))
+           ((node-prop node :on-double-press)
+            (values (keep :down nil :down-at nil :pending node
+                          :pending-id (node-prop node :id) :pending-at now)
+                    nil nil))
+           (t (values (keep :down nil :down-at nil) :press node))))))))
+
+(defun tap-handler (gesture)
+  "The property a GESTURE calls."
+  (ecase gesture
+    (:press :on-press)
+    (:long-press :on-long-press)
+    (:double-press :on-double-press)))
+
+(defun tappable-p (node)
+  "Whether NODE answers any tap at all. The hit test uses this, so a node with
+only an :ON-LONG-PRESS is still found -- which it was not when :ON-PRESS was the
+only thing anybody looked for."
+  (or (node-prop node :on-press)
+      (node-prop node :on-long-press)
+      (node-prop node :on-double-press)))

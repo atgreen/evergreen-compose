@@ -46,6 +46,7 @@ told whether it is pressed without remembering anything itself.")
    (drag-last :initform nil :accessor host-drag-last)
    (dragging :initform nil :accessor host-dragging)
    (drag-samples :initform '() :accessor host-drag-samples)
+   (taps :initform '() :accessor host-taps)
    (insets :initform '(0 0 0 0) :accessor host-insets)
    (last-display :initform nil :accessor host-last-display)))
 
@@ -189,6 +190,27 @@ what we are told about it, which is a delivery problem. Plenty, and the motion
 is merely being redrawn at the frame rate, which is a cost problem. The two feel
 the same and are fixed in different places.")
 
+(defun tap-now ()
+  "Seconds, from the same clock the drag samples use.
+
+Real time, not the frame clock: a long press is half a second and a frame is
+ten milliseconds, so a clock that only advances on a drawn frame would make the
+threshold depend on how busy the application is."
+  (/ (float (get-internal-real-time)) internal-time-units-per-second))
+
+(defun host-tap-tick (host)
+  "Fire any gesture that time alone has decided. True if one fired."
+  (multiple-value-bind (state gesture node)
+      (tap-step (host-taps host) :tick :now (tap-now))
+    (setf (host-taps host) state)
+    (when gesture
+      ;; A long press replaces the press: the finger is still down, and firing
+      ;; both when it lifts is how a context menu opens and then immediately
+      ;; acts on the item under it.
+      (when (eq gesture :long-press) (setf *pressed* nil))
+      (funcall (node-prop node (tap-handler gesture)) node)
+      t)))
+
 (defun host-pump-touches (host)
   "Drain the touch queue and dispatch. Returns true if anything changed.
 
@@ -200,6 +222,10 @@ identical from outside.
 A press ARMS a widget and a release fires it, and only when the release lands on
 the widget the press armed -- which is what lets a finger slide off to cancel."
   (let ((acted nil))
+    ;; Before the queue, because a long press is decided by time PASSING and
+    ;; there may be no event at all to hang it on. This runs on every pass of
+    ;; the frame loop, not only on a frame that draws.
+    (when (host-tap-tick host) (setf acted t))
     (loop for event = (multiple-value-list (android:poll-touch))
           while (first event)
           do (incf *touch-events*)
@@ -216,7 +242,7 @@ the widget the press armed -- which is what lets a finger slide off to cancel."
                    (flet ((hit ()
                             (and placed
                                  (hit-test placed lx ly
-                                           (lambda (n) (node-prop n :on-press))))))
+                                           #'tappable-p))))
                    (case action
                      ;; Both edges owe a frame: a press changes the held
                      ;; highlight even when it fires nothing.
@@ -229,6 +255,8 @@ the widget the press armed -- which is what lets a finger slide off to cancel."
                             (when spoken (announce-node spoken))))
                         (setf *pressed* (let ((hit (hit))) (and hit (node-prop hit :id)))
                               acted t
+                              (host-taps host) (tap-step (host-taps host) :down
+                                                         :node (hit) :now (tap-now))
                               (host-dragging host) nil
                               (host-drag-origin host) (cons lx ly)
                               (host-drag-last host) (cons lx ly)
@@ -251,7 +279,9 @@ the widget the press armed -- which is what lets a finger slide off to cancel."
                                             (abs (- ly (cdr origin))))
                                          *drag-slop*))
                               (unless (host-dragging host)
-                                (setf (host-dragging host) t *pressed* nil))
+                                (setf (host-dragging host) t *pressed* nil
+                                      (host-taps host)
+                                      (tap-step (host-taps host) :cancel)))
                               (let ((last (host-drag-last host))
                                     (now (/ (float (get-internal-real-time))
                                             internal-time-units-per-second)))
@@ -281,9 +311,18 @@ the widget the press armed -- which is what lets a finger slide off to cancel."
                               (setf (host-drag-last host) (cons lx ly)
                                     acted t)))))
                      (1 (let ((hit (hit)))
-                          (when (and hit *pressed* (not (host-dragging host))
-                                     (eq *pressed* (node-prop hit :id)))
-                            (funcall (node-prop hit :on-press) hit)))
+                          ;; The release must land on the node the press armed,
+                          ;; which is what lets a finger slide off to cancel.
+                          (if (and hit *pressed* (not (host-dragging host))
+                                   (eq *pressed* (node-prop hit :id)))
+                              (multiple-value-bind (state gesture node)
+                                  (tap-step (host-taps host) :up :node hit
+                                            :now (tap-now))
+                                (setf (host-taps host) state)
+                                (when gesture
+                                  (funcall (node-prop node (tap-handler gesture)) node)))
+                              (setf (host-taps host)
+                                    (tap-step (host-taps host) :cancel))))
                         ;; A lifted finger that was moving hands its speed over.
                         ;; What to do with it is the application's: a list that
                         ;; should not fling simply does not keep the number.
