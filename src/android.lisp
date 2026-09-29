@@ -32,7 +32,7 @@ told whether it is pressed without remembering anything itself.")
    (placed :initform nil :accessor host-placed)
    (started :initform nil :accessor host-started)
    (last-frame :initform nil :accessor host-last-frame)
-   (drag-node :initform nil :accessor host-drag-node)
+   (drag-chain :initform '() :accessor host-drag-chain)
    (drag-origin :initform nil :accessor host-drag-origin)
    (drag-last :initform nil :accessor host-drag-last)
    (dragging :initform nil :accessor host-dragging)
@@ -224,15 +224,16 @@ the widget the press armed -- which is what lets a finger slide off to cancel."
                               (host-drag-origin host) (cons lx ly)
                               (host-drag-last host) (cons lx ly)
                               (host-drag-samples host) '()
-                              ;; A drag may be captured by an ANCESTOR of what
-                              ;; was pressed: a finger landing on a button
-                              ;; inside a list still scrolls the list.
-                              (host-drag-node host)
-                              (hit-test placed lx ly
-                                        (lambda (n) (node-prop n :on-drag)))))
-                     (2 (let ((node (host-drag-node host))
+                              ;; Every handler from the touch outwards, not just
+                              ;; the innermost: a finger landing on a button
+                              ;; inside a list scrolls the list, and a list that
+                              ;; reaches its end hands the rest to the page.
+                              (host-drag-chain host)
+                              (remove-if-not (lambda (n) (node-prop n :on-drag))
+                                             (reverse (hit-path placed lx ly)))))
+                     (2 (let ((chain (host-drag-chain host))
                               (origin (host-drag-origin host)))
-                          (when (and node origin)
+                          (when (and chain origin)
                             ;; Past the slop the touch is a drag, and stops
                             ;; being a press: a finger that scrolls away from a
                             ;; button must not also press it.
@@ -245,8 +246,20 @@ the widget the press armed -- which is what lets a finger slide off to cancel."
                               (let ((last (host-drag-last host))
                                     (now (/ (float (get-internal-real-time))
                                             internal-time-units-per-second)))
-                                (funcall (node-prop node :on-drag) node
-                                         (- lx (car last)) (- ly (cdr last)))
+                                ;; Offer the movement inwards out. A handler
+                                ;; says how much it USED; anything that is not a
+                                ;; number means all of it, so a handler written
+                                ;; before this existed -- and they all end in
+                                ;; INVALIDATE, which returns T -- behaves
+                                ;; exactly as it did.
+                                (let ((dx (- lx (car last)))
+                                      (dy (- ly (cdr last))))
+                                  (dolist (node chain)
+                                    (when (and (zerop dx) (zerop dy)) (return))
+                                    (multiple-value-bind (used-x used-y)
+                                        (funcall (node-prop node :on-drag) node dx dy)
+                                      (setf dx (if (numberp used-x) (- dx used-x) 0)
+                                            dy (if (numberp used-y) (- dy used-y) 0)))))
                                 ;; Real time, not the frame clock: a dozen
                                 ;; touches arrive between two frames and the
                                 ;; frame clock gives them all the same instant,
@@ -265,14 +278,14 @@ the widget the press armed -- which is what lets a finger slide off to cancel."
                         ;; A lifted finger that was moving hands its speed over.
                         ;; What to do with it is the application's: a list that
                         ;; should not fling simply does not keep the number.
-                        (let ((node (host-drag-node host)))
-                          (when (and node (host-dragging host)
-                                     (node-prop node :on-fling))
+                        (let ((node (find-if (lambda (n) (node-prop n :on-fling))
+                                             (host-drag-chain host))))
+                          (when (and node (host-dragging host))
                             (multiple-value-bind (vx vy)
                                 (drag-velocity (host-drag-samples host))
                               (funcall (node-prop node :on-fling) node vx vy))))
                         (setf *pressed* nil acted t
-                              (host-drag-node host) nil
+                              (host-drag-chain host) '()
                               (host-drag-samples host) '()
                               (host-dragging host) nil))))))))
     acted))

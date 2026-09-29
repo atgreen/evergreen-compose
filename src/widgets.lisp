@@ -201,7 +201,7 @@ as one thing instead of the knob sliding across a track that snaps."
   `(column (:gap ,(space gap))
      ,(text text-string :size size :colour (theme :on-surface-variant)) ,child))
 
-(defun scroll (children &key id (offset 0) on-drag on-fling height width
+(defun scroll (children &key id (offset 0) on-drag on-fling height width grow
                                 (axis :vertical))
   "A clipped container whose children are shifted by OFFSET along AXIS.
 
@@ -222,7 +222,11 @@ missing."
        ,@(when on-drag (list :on-drag on-drag))
        ,@(when on-fling (list :on-fling on-fling))
        ,@(when height (list :height height))
-       ,@(when width (list :width width)))
+       ,@(when width (list :width width))
+       ;; A scroller that fills what its parent has left, rather than being told
+       ;; a height its parent already knows. :SCROLL unbounds the CHILDREN and
+       ;; :GROW sizes the scroller, which are different axes of the same node.
+       ,@(when grow (list :grow grow)))
       ,@children)))
 
 (defun visible-range (offset viewport item-size count &key (overscan 2))

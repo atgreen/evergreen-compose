@@ -33,6 +33,7 @@
    :announce :announce-node :accessibility-enabled-p :exploring-by-touch-p :describe-screen
    :window-insets
    :hit-test :dispatch :node-prop :scale-point :scroll-by :*drag-slop*
+   :hit-path :node-path :scrolling-ancestor :needed-scroll :drag-scroll
    :fling-step :flinging-p :drag-velocity :*fling-friction* :*fling-minimum*
    :laid-out-content
    ;; widgets
@@ -53,7 +54,7 @@
    ;; the Android host: window, touch mapping and the frame loop
    :*pressed* :*dirty* :*touch-events* :invalidate :android-host :open-android-host :run-android-app
    :host-width :host-height :host-placed :host-backend :host-drag-samples
-   :host-insets :refresh-insets
+   :host-insets :refresh-insets :host-drag-chain
    :with-frame-clock :host-started :host-last-frame
    :canvas-open :canvas-draw :canvas-pixels :canvas-release-pixels
    :*measure-text* :bitmap-text-extent :text-extent

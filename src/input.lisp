@@ -142,3 +142,63 @@ no relation to how fast the finger was moving."
               (values 0.0 0.0)
               (values (/ (- (second newest) (second oldest)) seconds)
                       (/ (- (cddr newest) (cddr oldest)) seconds)))))))
+
+;;; ── Ancestors ─────────────────────────────────────────────────────────
+;;;
+;;; A laid-out tree points downwards only, so "the scroller this node is inside"
+;;; is not a question a node can answer. It is a question about the PATH taken
+;;; to reach it, which is why these return one.
+
+(defun drag-scroll (node offset dx)
+  "Scroll NODE by a finger movement of DX.
+
+Returns the new offset and the amount of the MOVEMENT consumed, which is what a
+nested :ON-DRAG hands back so its parent can have the rest. A scroller already
+at its end consumes nothing and the page behind it takes the whole gesture,
+which is the behaviour a phone user expects and never notices."
+  (let ((moved (scroll-by node offset (- dx))))
+    (values moved (- offset moved))))
+
+(defun hit-path (node x y)
+  "The chain from NODE down to the deepest node containing (X, Y), outermost
+first, or NIL when the point misses.
+
+HIT-TEST answers WHICH node was touched. This answers what it was inside, which
+is what a gesture one node cannot finish needs to know."
+  (when (rect-contains-p (laid-out-frame node) x y)
+    (cons node
+          (or (some (lambda (child) (hit-path child x y))
+                    (reverse (laid-out-children node)))
+              '()))))
+
+(defun node-path (node test)
+  "The chain from NODE down to the first descendant satisfying TEST, or NIL.
+
+Depth first and in order, so it finds what a reader or a caret would reach
+first."
+  (if (funcall test node)
+      (list node)
+      (some (lambda (child)
+              (let ((deeper (node-path child test)))
+                (when deeper (cons node deeper))))
+            (laid-out-children node))))
+
+(defun scrolling-ancestor (path)
+  "The innermost node in PATH that scrolls, or NIL."
+  (find-if (lambda (node) (node-prop node :scroll)) (reverse path)))
+
+(defun needed-scroll (scroller node)
+  "How far SCROLLER must move along its own axis to bring NODE fully into view.
+
+Zero when it already is. Positive means scroll further on -- the same sense as
+SCROLL-BY's delta, so the answer can be handed straight to it."
+  (let* ((row (eq (view-kind (laid-out-view scroller)) :row))
+         (view (laid-out-frame scroller))
+         (item (laid-out-frame node))
+         (view-start (if row (rect-x view) (rect-y view)))
+         (view-end (if row (rect-right view) (rect-bottom view)))
+         (item-start (if row (rect-x item) (rect-y item)))
+         (item-end (if row (rect-right item) (rect-bottom item))))
+    (cond ((> item-end view-end) (- item-end view-end))
+          ((< item-start view-start) (- item-start view-start))
+          (t 0))))
