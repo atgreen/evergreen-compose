@@ -1132,12 +1132,56 @@ identity, so a test that wants to compare two rectangles must compare numbers."
          0 (view-prop (card nil :outlined t) :elevation))
   (check "and it has an edge" 1 (view-prop (card nil :outlined t) :border)))
 
+(defun test-fling ()
+  (format t "fling~%")
+  ;; Velocity is measured across the whole window, not between the last two
+  ;; samples: touches arrive a dozen to a frame, so consecutive ones are often a
+  ;; hair apart in space and microseconds apart in time.
+  (multiple-value-bind (vx vy)
+      (drag-velocity (list (list* 1.0 100 50) (list* 0.75 75 40)
+                           (list* 0.5 50 30) (list* 0.0 0 10)))
+    (check "velocity is the whole span over the whole time" 100.0 vx)
+    (check "on both axes" 40.0 vy))
+  (check "one sample is no velocity at all" 0.0 (drag-velocity (list (list* 1.0 5 5))))
+  (check "and no samples is not an error" 0.0 (drag-velocity '()))
+  (check "nor is a window with no time in it"
+         0.0 (drag-velocity (list (list* 1.0 9 9) (list* 1.0 0 0))))
+  (check-true "a fast fling is worth animating" (flinging-p 500.0))
+  (check-true "a slow one is not" (not (flinging-p 5.0)))
+  (check-true "and neither is nothing" (not (flinging-p nil)))
+  ;; The point of an exponential decay: the same elapsed time covers the same
+  ;; distance however many steps it is cut into, so a fling looks the same at
+  ;; sixty frames a second and at eleven.
+  (let ((node (layout (scroll (list '(box (:width 20 :height 4000)))
+                              :width 20 :height 100)
+                      0 0)))
+    (flet ((travel (steps seconds)
+             (let ((offset 0) (velocity 1000.0))
+               (dotimes (i steps offset)
+                 (multiple-value-setq (offset velocity)
+                   (fling-step node offset velocity (/ seconds steps)))))))
+      (let ((coarse (travel 6 0.5)) (fine (travel 60 0.5)))
+        (check-true "a coarse fling and a fine one land within a pixel or two"
+                    (< (abs (- coarse fine)) 3))
+        (check-true "and both actually moved" (> fine 100)))))
+  ;; A fling that reaches the end is over, however fast it was going.
+  (let ((node (layout (scroll (list '(box (:width 20 :height 120)))
+                              :width 20 :height 100)
+                      0 0)))
+    (multiple-value-bind (offset velocity) (fling-step node 0 100000.0 0.1)
+      (check "it stops at the end" 20 offset)
+      (check-true "still carrying speed, because it has not arrived yet"
+                  (plusp velocity)))
+    (multiple-value-bind (offset velocity) (fling-step node 20 100000.0 0.1)
+      (check "and going no further" 20 offset)
+      (check "it gives up the speed too" 0.0 velocity))))
+
 (defun run-tests ()
   (setf *failures* 0 *checks* 0)
   (test-geometry) (test-paint) (test-font)
   (test-layout) (test-render) (test-raster)
   (test-input) (test-widgets) (test-constraints) (test-backend) (test-extension)
-  (test-utf8) (test-stacking) (test-text-field) (test-elevation) (test-stretch) (test-paths) (test-horizontal-list) (test-memo-across-frames) (test-damage) (test-damaged-drawing) (test-design-system) (test-screen-composites) (test-svg) (test-borders)
+  (test-utf8) (test-stacking) (test-text-field) (test-elevation) (test-stretch) (test-paths) (test-horizontal-list) (test-memo-across-frames) (test-damage) (test-damaged-drawing) (test-design-system) (test-screen-composites) (test-svg) (test-borders) (test-fling)
   (test-composites) (test-corners-and-clipping) (test-scroll) (test-clock) (test-virtual-list) (test-image)
   (format t "~%~D checks, ~D failures~%" *checks* *failures*)
   *failures*)

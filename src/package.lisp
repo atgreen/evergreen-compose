@@ -30,6 +30,7 @@
    :now :frame-delta :animating :approach :ease :*frame-time* :*frame-delta*
    ;; input and dispatch
    :hit-test :dispatch :node-prop :scale-point :scroll-by :*drag-slop*
+   :fling-step :flinging-p :drag-velocity :*fling-friction* :*fling-minimum*
    :laid-out-content
    ;; widgets
    :*theme* :theme :theme-value :button :toggle :spacer :text
@@ -48,7 +49,8 @@
    :attach-editor :editor-text :set-editor-text :start-text-input :accepting-text-p
    ;; the Android host: window, touch mapping and the frame loop
    :*pressed* :*dirty* :*touch-events* :invalidate :android-host :open-android-host :run-android-app
-   :host-width :host-height :host-placed :host-backend
+   :host-width :host-height :host-placed :host-backend :host-drag-samples
+   :with-frame-clock :host-started :host-last-frame
    :canvas-open :canvas-draw :canvas-pixels :canvas-release-pixels
    :*measure-text* :bitmap-text-extent :text-extent
    :canvas-width :canvas-height)

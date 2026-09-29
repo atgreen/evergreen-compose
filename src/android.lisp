@@ -36,6 +36,7 @@ told whether it is pressed without remembering anything itself.")
    (drag-origin :initform nil :accessor host-drag-origin)
    (drag-last :initform nil :accessor host-drag-last)
    (dragging :initform nil :accessor host-dragging)
+   (drag-samples :initform '() :accessor host-drag-samples)
    (last-display :initform nil :accessor host-last-display)))
 
 (defun android-call (host name return types arguments)
@@ -98,6 +99,34 @@ opened at the window's own stride."
     (canvas-release-pixels (canvas-backend-canvas (host-backend host)))
     (android-call host "ANativeWindow_unlockAndPost" :int '(:pointer)
                   (list (host-window host)))))
+
+(defmacro with-frame-clock ((host) &body body)
+  "Run BODY as one frame: the clock fixed, and another frame asked for if the
+view says it is not settled.
+
+A macro, and exported, because a hand-written loop needs exactly this and
+copying it is how the two drift apart. The demo's own loop did not have it, so
+ANIMATING did nothing there and no animation could ever have run."
+  (let ((now (gensym "NOW")) (h (gensym "HOST")))
+    `(let ((,h ,host))
+       ;; A FLOAT, not the exact ratio the division gives: a rational clock is
+       ;; surprising to arithmetic that expects a number it can print, and ~F
+       ;; rejects it outright -- which killed the worker on the first frame
+       ;; after a touch and left the last frame on screen looking like dead
+       ;; input.
+       (let* ((,now (float (/ (get-internal-real-time) internal-time-units-per-second)
+                           1.0d0))
+              (*frame-time* (- ,now (or (host-started ,h)
+                                        (setf (host-started ,h) ,now))))
+              (*frame-delta* (min 1/10 (- *frame-time*
+                                          (or (host-last-frame ,h) *frame-time*))))
+              (*animating* nil))
+         (setf (host-last-frame ,h) *frame-time*)
+         (multiple-value-prog1 (progn ,@body)
+           ;; The view said it is not settled, so it is owed another frame.
+           ;; Asked for AFTER the build, so an animation that just finished
+           ;; does not get one.
+           (when *animating* (invalidate)))))))
 
 (defun host-draw (host view)
   "Lay out and present VIEW, unless the frame is identical to the last one.
@@ -168,6 +197,7 @@ the widget the press armed -- which is what lets a finger slide off to cancel."
                               (host-dragging host) nil
                               (host-drag-origin host) (cons lx ly)
                               (host-drag-last host) (cons lx ly)
+                              (host-drag-samples host) '()
                               ;; A drag may be captured by an ANCESTOR of what
                               ;; was pressed: a finger landing on a button
                               ;; inside a list still scrolls the list.
@@ -186,17 +216,38 @@ the widget the press armed -- which is what lets a finger slide off to cancel."
                                          *drag-slop*))
                               (unless (host-dragging host)
                                 (setf (host-dragging host) t *pressed* nil))
-                              (let ((last (host-drag-last host)))
+                              (let ((last (host-drag-last host))
+                                    (now (/ (float (get-internal-real-time))
+                                            internal-time-units-per-second)))
                                 (funcall (node-prop node :on-drag) node
-                                         (- lx (car last)) (- ly (cdr last))))
+                                         (- lx (car last)) (- ly (cdr last)))
+                                ;; Real time, not the frame clock: a dozen
+                                ;; touches arrive between two frames and the
+                                ;; frame clock gives them all the same instant,
+                                ;; which makes every velocity infinite or zero.
+                                (push (list* now lx ly) (host-drag-samples host))
+                                (setf (host-drag-samples host)
+                                      (remove-if (lambda (sample)
+                                                   (> (- now (first sample)) 1/10))
+                                                 (host-drag-samples host))))
                               (setf (host-drag-last host) (cons lx ly)
                                     acted t)))))
                      (1 (let ((hit (hit)))
                           (when (and hit *pressed* (not (host-dragging host))
                                      (eq *pressed* (node-prop hit :id)))
                             (funcall (node-prop hit :on-press) hit)))
+                        ;; A lifted finger that was moving hands its speed over.
+                        ;; What to do with it is the application's: a list that
+                        ;; should not fling simply does not keep the number.
+                        (let ((node (host-drag-node host)))
+                          (when (and node (host-dragging host)
+                                     (node-prop node :on-fling))
+                            (multiple-value-bind (vx vy)
+                                (drag-velocity (host-drag-samples host))
+                              (funcall (node-prop node :on-fling) node vx vy))))
                         (setf *pressed* nil acted t
                               (host-drag-node host) nil
+                              (host-drag-samples host) '()
                               (host-dragging host) nil))))))))
     acted))
 
@@ -224,28 +275,8 @@ something should cost nothing when they are not doing anything."
                     (when (host-pump-touches host) (invalidate))
                     (cond (*dirty*
                            (setf *dirty* nil)
-                           ;; A FLOAT, not the exact ratio the division gives:
-                           ;; a rational clock is surprising to arithmetic that
-                           ;; expects a number it can print, and ~F rejects it
-                           ;; outright -- which killed the worker on the first
-                           ;; frame after a touch and left the last frame on
-                           ;; screen looking like dead input.
-                           (let* ((clock (float (/ (get-internal-real-time)
-                                                   internal-time-units-per-second)
-                                                1.0d0))
-                                  (*frame-time* (- clock (or (host-started host)
-                                                             (setf (host-started host) clock))))
-                                  (*frame-delta* (min 1/10
-                                                      (- *frame-time*
-                                                         (or (host-last-frame host)
-                                                             *frame-time*))))
-                                  (*animating* nil))
-                             (setf (host-last-frame host) *frame-time*)
+                           (with-frame-clock (host)
                              (host-draw host (funcall view-function
                                                       (host-width host)
-                                                      (host-height host)))
-                             ;; The view said it is not settled, so it is owed
-                             ;; another frame. Asked for AFTER the build, so an
-                             ;; animation that just finished does not get one.
-                             (when *animating* (invalidate))))
+                                                      (host-height host)))))
                           (t (sleep 0.008))))))))

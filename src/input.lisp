@@ -78,3 +78,67 @@ falls out as a limit of zero rather than needing a case."
                        (rect-height frame)))
          (limit (max 0 (- (laid-out-content node) viewport))))
     (max 0 (min limit (+ offset delta)))))
+
+;;; ── Fling ─────────────────────────────────────────────────────────────
+;;;
+;;; A scroller that stops dead when the finger lifts feels broken, and the fix
+;;; is not "keep scrolling" but a decaying velocity: the content carries on and
+;;; slows down, and a flick travels further than a shove.
+;;;
+;;; The physics is a pair of ordinary functions and the VELOCITY lives in the
+;;; application, like every other piece of widget state. The host measures it
+;;; and hands it over; what to do with it is not the framework's decision. A
+;;; list that should not fling simply does not keep the number.
+
+(defparameter *fling-friction* 4.0
+  "How fast a fling loses speed, per second, as an exponential rate.
+
+Exponential rather than a fixed subtraction, for the reason APPROACH is: the
+distance covered then depends on ELAPSED TIME rather than on how many frames
+happened to fit in it, so a fling looks the same at sixty frames a second and at
+eleven -- which matters here, because eleven is what a busy screen gets.")
+
+(defparameter *fling-minimum* 40.0
+  "Pixels per second below which a fling has stopped. Without a floor it decays
+towards zero for ever and the screen never settles.")
+
+(defun flinging-p (velocity)
+  "Whether VELOCITY is still worth animating."
+  (and velocity (> (abs velocity) *fling-minimum*)))
+
+(defun fling-step (node offset velocity elapsed)
+  "Carry OFFSET along at VELOCITY for ELAPSED seconds, and slow it down.
+
+Returns the new offset and the new velocity. Clamped by SCROLL-BY, so a fling
+that reaches the end simply stops there rather than running past it -- and the
+velocity is dropped when it does, because a fling that has hit the end is over
+however fast it was going."
+  ;; The distance is the INTEGRAL of a decaying velocity, not the starting
+  ;; velocity times the time. Multiplying by ELAPSED is forward Euler and it
+  ;; overshoots as the step grows: over half a second in one step it travels 500
+  ;; pixels where the true answer is 216, so a fling on a slow screen goes more
+  ;; than twice as far as the same flick on a fast one. Integrating exactly
+  ;; costs one EXP that is already being computed.
+  (let* ((decay (exp (- (* *fling-friction* elapsed))))
+         (distance (/ (* velocity (- 1 decay)) *fling-friction*))
+         (moved (scroll-by node offset distance)))
+    (values moved
+            (if (= moved offset)     ; the end, or nowhere to go
+                0.0
+                (* velocity decay)))))
+
+(defun drag-velocity (samples)
+  "Pixels per second from SAMPLES, newest first, as (TIME X . Y).
+
+Measured across the whole window rather than between the last two: touches
+arrive in bursts of a dozen per frame, so consecutive samples are often
+microseconds and a hair apart, and dividing one by the other gives a number with
+no relation to how fast the finger was moving."
+  (let ((newest (first samples)) (oldest (car (last samples))))
+    (if (or (null newest) (eq newest oldest))
+        (values 0.0 0.0)
+        (let ((seconds (- (first newest) (first oldest))))
+          (if (<= seconds 0)
+              (values 0.0 0.0)
+              (values (/ (- (second newest) (second oldest)) seconds)
+                      (/ (- (cddr newest) (cddr oldest)) seconds)))))))

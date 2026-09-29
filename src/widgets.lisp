@@ -198,7 +198,8 @@ as one thing instead of the knob sliding across a track that snaps."
   `(column (:gap ,(space gap))
      ,(text text-string :size size :colour (theme :on-surface-variant)) ,child))
 
-(defun scroll (children &key id (offset 0) on-drag height width (axis :vertical))
+(defun scroll (children &key id (offset 0) on-drag on-fling height width
+                                (axis :vertical))
   "A clipped container whose children are shifted by OFFSET along AXIS.
 
 Not a new primitive: a stack that clips and offsets IS a scroll view, so this is
@@ -216,6 +217,7 @@ missing."
        ,(if horizontal :offset-x :offset-y) ,offset
        :id ,id
        ,@(when on-drag (list :on-drag on-drag))
+       ,@(when on-fling (list :on-fling on-fling))
        ,@(when height (list :height height))
        ,@(when width (list :width width)))
       ,@children)))
@@ -232,7 +234,7 @@ rows, and at the measured cost of a node that is over a second a frame."
     (values first (max first last))))
 
 (defun virtual-list (count item &key id (offset 0) viewport (item-size 40)
-                                     width height on-drag (overscan 2)
+                                     width height on-drag on-fling (overscan 2)
                                      (axis :vertical))
   "A scrolling list of COUNT items, of which only the visible ones are built.
 
@@ -262,7 +264,7 @@ one, and :WIDTH / :HEIGHT then say the other dimension."
          (append (list (gap (* first item-size)))
                  (loop for index from first below last collect (cell index))
                  (list (gap (* (- count last) item-size))))
-         :axis axis :id id :offset offset :on-drag on-drag
+         :axis axis :id id :offset offset :on-drag on-drag :on-fling on-fling
          :height (if horizontal height viewport)
          :width (if horizontal viewport width))))))
 
