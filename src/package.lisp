@@ -44,6 +44,7 @@
    :*schemes* :*type-scale* :*spacing* :use-scheme :type-size :space
    :icon :icon-button :icon-names :*icons* :thick-line :circle-path
    ;; which field the keyboard is bound to
+   :*draw-profile*
    :paragraph :wrap-text :wrapped-extent
    ;; a REPL into the running application
    :start-live-repl :stop-live-repl :live-repl-poll :*live-log* :*slynk-port*

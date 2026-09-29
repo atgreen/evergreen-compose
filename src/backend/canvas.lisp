@@ -322,6 +322,31 @@ rebuilding a label's string every frame costs more than drawing it."
   (or (gethash text (canvas-strings canvas))
       (setf (gethash text (canvas-strings canvas)) (jni-string text))))
 
+(defvar *draw-profile* nil
+  "When non-NIL, a plist of op-kind -> (count . milliseconds), filled by
+CANVAS-DRAW. Off by default and tested once per operation, because the point is
+to find out where PRESENT's time goes without changing what it does.
+
+Seed it with something NON-EMPTY -- (list :on (cons 0 0)) -- since an empty
+plist is NIL and would read as \"off\". Then read it back after the frames you
+care about:
+
+  (setf bliss:*draw-profile* (list :on (cons 0 0)))
+  ... let some frames run ...
+  bliss:*draw-profile*  =>  (:GLYPHS (123 . 207) :SHADOW (30 . 167) ...)
+
+That is how PRESENT was traced to the FFI rather than to Skia: every operation's
+cost turned out to be proportional to the number of JNI calls it makes, not to
+the number of pixels it touches.")
+
+(defun draw-profile-note (kind start)
+  (let* ((elapsed (- (get-internal-real-time) start))
+         (entry (getf *draw-profile* kind)))
+    (if entry
+        (setf (car entry) (1+ (car entry))
+              (cdr entry) (+ (cdr entry) elapsed))
+        (setf (getf *draw-profile* kind) (cons 1 elapsed)))))
+
 (defun canvas-draw (canvas display-list)
   "Execute DISPLAY-LIST through Skia.
 
@@ -331,7 +356,8 @@ drawText call, with real shaping and antialiasing."
   (let ((paint (canvas-paint canvas))
         (object (canvas-object canvas)))
     (dolist (op display-list)
-      (ecase (first op)
+      (let ((%start (when *draw-profile* (get-internal-real-time))))
+       (ecase (first op)
         ;; SAVE/RESTORE is Skia's own clip stack, so nothing has to be
         ;; intersected by hand and text is clipped as correctly as anything else.
         (:clip-push
@@ -459,7 +485,8 @@ drawText call, with real shaping and antialiasing."
              (jni-call-void object (canvas-draw-text canvas)
                             (jni-args (list :object (canvas-string canvas text))
                                       (list :float x) (list :float (- y ascent))
-                                      (list :object paint))))))))
+                                      (list :object paint)))))))
+       (when %start (draw-profile-note (first op) %start))))
     (jni-check)))
 
 (defun canvas-pixels (canvas)
