@@ -29,6 +29,7 @@
   set-mask-filter blur-class blur-init blur-normal
   path-class path-init path-move path-line path-quad path-cubic path-close
   draw-path translate scale
+  set-style set-stroke-width style-fill style-stroke
   (strings (make-hash-table :test #'equal))
   (images (make-hash-table :test #'eq))
   (blurs (make-hash-table :test #'eql))
@@ -122,6 +123,15 @@ int Java expects rather than a positive bignum."
                    :blur-init (jni-method (jni-find-class "android/graphics/BlurMaskFilter")
                                           "<init>"
                                           "(FLandroid/graphics/BlurMaskFilter$Blur;)V")
+                   :set-style (jni-method paint-class "setStyle"
+                                          "(Landroid/graphics/Paint$Style;)V")
+                   :set-stroke-width (jni-method paint-class "setStrokeWidth" "(F)V")
+                   :style-fill (jni-static-object-field
+                                (jni-find-class "android/graphics/Paint$Style")
+                                "FILL" "Landroid/graphics/Paint$Style;")
+                   :style-stroke (jni-static-object-field
+                                  (jni-find-class "android/graphics/Paint$Style")
+                                  "STROKE" "Landroid/graphics/Paint$Style;")
                    :blur-normal (jni-static-object-field
                                  (jni-find-class "android/graphics/BlurMaskFilter$Blur")
                                  "NORMAL" "Landroid/graphics/BlurMaskFilter$Blur;")
@@ -339,6 +349,26 @@ drawText call, with real shaping and antialiasing."
                                     (list :object paint)))
            (jni-release (jni-call-object paint (canvas-set-mask-filter canvas)
                                          (jni-args (list :object (torcl-ffi:null-pointer)))))))
+        (:stroke-rect
+         (destructuring-bind (x y w h radius thickness ink) (rest op)
+           ;; Skia centres a stroke ON the path, so drawing the frame itself
+           ;; would put half the outline outside the view. Inset by half.
+           (let ((half (/ thickness 2.0)))
+             (canvas-colour canvas ink)
+             (jni-call-void paint (canvas-set-style canvas)
+                            (jni-args (list :object (canvas-style-stroke canvas))))
+             (jni-call-void paint (canvas-set-stroke-width canvas)
+                            (jni-args (list :float thickness)))
+             (jni-call-void object (canvas-draw-round-rect canvas)
+                            (jni-args (list :float (+ x half)) (list :float (+ y half))
+                                      (list :float (- (+ x w) half))
+                                      (list :float (- (+ y h) half))
+                                      (list :float radius) (list :float radius)
+                                      (list :object paint)))
+             ;; The paint is shared, so it goes back to filling or every
+             ;; rectangle after this one becomes an outline.
+             (jni-call-void paint (canvas-set-style canvas)
+                            (jni-args (list :object (canvas-style-fill canvas)))))))
         (:path
          (destructuring-bind (x y w h view-box commands ink) (rest op)
            ;; The path is built in its own 24-unit space and the CANVAS is moved

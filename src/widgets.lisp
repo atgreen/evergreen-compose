@@ -300,6 +300,9 @@ characters nobody typed, so the editor is the truth and this only draws it."
     `(box (:padding ,pad
            :radius ,(theme-value :radius 0)
            :background ,(theme :surface-variant)
+           ;; A focused field says so with a ring, which is the thing every
+           ;; toolkit does and we could not until there were borders.
+           ,@(when focused (list :border 2 :border-colour (theme :primary)))
            :id ,id
            ,@(when grow (list :grow grow))
            ,@(when id (list :on-press press)))
@@ -317,7 +320,7 @@ characters nobody typed, so the editor is the truth and this only draws it."
                           :fill ,(theme :primary)))))))))
 
 (defun card (children &key (padding 12) (gap 8) elevation background radius grow stretch
-                             id on-press)
+                             outlined id on-press)
   "A raised surface with content in it.
 
 The whole widget, which is rather the point. Compose's Card is six lines
@@ -326,7 +329,10 @@ this is the six, and a caller who wants the variants writes them."
   `(column (:padding ,padding :gap ,gap
             :radius ,(or radius (theme-value :radius 0))
             :background ,(or background (theme :surface-variant))
-            :elevation ,(or elevation (theme-value :elevation 0))
+            ;; An outlined card is flat by convention: the outline is what
+            ;; separates it, so a shadow as well is saying it twice.
+            :elevation ,(if outlined 0 (or elevation (theme-value :elevation 0)))
+            ,@(when outlined (list :border 1 :border-colour (theme :outline)))
             ,@(when grow (list :grow grow))
             ,@(when stretch (list :stretch t))
             ,@(when id (list :id id))
@@ -490,3 +496,38 @@ outline is a border and a view cannot have one yet (bliss-jfq)."
                      :colour (if selected (theme :on-primary) (theme :on-surface-variant)))))
      ,(text label :size :label
             :colour (if selected (theme :on-primary) (theme :on-surface-variant)))))
+
+;;; ── Selection ─────────────────────────────────────────────────────────
+
+(defun checkbox (checked &key id on-press (size 20))
+  "A box that is an outline when empty and a filled tick when not.
+
+The empty state is why :BORDER exists. It is an outline round NOTHING, which
+could not be drawn before and could not be faked either: nesting a smaller box
+of the parent's colour is a hole, and a hole is the wrong colour the moment the
+checkbox is not on the surface it guessed -- inside a card, say."
+  (if checked
+      `(box (:width ,size :height ,size :radius 4
+             :background ,(theme :primary)
+             :align :center :cross-align :center
+             ,@(when id (list :id id))
+             ,@(when on-press (list :on-press on-press)))
+         ,(icon :check :size (- size 4) :colour (theme :on-primary)))
+      `(box (:width ,size :height ,size :radius 4
+             :border 2 :border-colour ,(theme :on-surface-variant)
+             ,@(when id (list :id id))
+             ,@(when on-press (list :on-press on-press))))))
+
+(defun radio (selected &key id on-press (size 20))
+  "A ring, with a dot in it when chosen. Always outlined, unlike a checkbox,
+which is what tells the two apart at a glance even before the shape does."
+  `(box (:width ,size :height ,size :radius ,(floor size 2)
+         :border 2
+         :border-colour ,(if selected (theme :primary) (theme :on-surface-variant))
+         :align :center :cross-align :center
+         ,@(when id (list :id id))
+         ,@(when on-press (list :on-press on-press)))
+     ,@(when selected
+         (let ((dot (max 2 (- size 10))))
+           (list `(box (:width ,dot :height ,dot :radius ,(floor dot 2)
+                        :fill ,(theme :primary))))))))

@@ -15,7 +15,7 @@
    ;; display list
    :render :flatten-to-rects :colour :measure-kind :render-kind :round-rect-spans
    :parse-svg-path :svg-path-strings
-   :shadow-rects :shadow-op :*shadow-colour* :path-spans :flatten-path
+   :shadow-rects :shadow-op :*shadow-colour* :stroke-spans :*border-colour* :path-spans :flatten-path
    :record-placement :placement-overlap :display-damage :op-bounds
    ;; backends
    :surface :make-surface :surface-width :surface-height :surface-pixels
@@ -35,6 +35,7 @@
    :*theme* :theme :theme-value :button :toggle :spacer :text
    :vstack :hstack :progress :switch :labelled :scroll :virtual-list :visible-range :image
    :text-field :card :divider :list-item :app-bar :scaffold :chip
+   :checkbox :radio
    :*schemes* :*type-scale* :*spacing* :use-scheme :type-size :space
    :icon :icon-button :icon-names :*icons* :thick-line :circle-path
    ;; which field the keyboard is bound to

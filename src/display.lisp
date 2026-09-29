@@ -75,6 +75,41 @@ draw :SHADOW itself and never come through here."
                (push (append span (list ink)) rects)))
     (nreverse rects)))
 
+(defparameter *border-colour* (rgba 0 0 0 255)
+  "What an outline is drawn in when a view does not say. Here rather than in the
+theme for the same reason as *SHADOW-COLOUR*: the display list must not depend on
+the widget vocabulary.")
+
+(defun stroke-spans (x y width height radius thickness)
+  "An outlined rectangle as spans: the shape, minus the shape inset by THICKNESS.
+
+Subtracting one span set from the other rather than drawing four edges, because
+four edges are wrong at a corner -- they meet in a square notch where the
+rounding should be. Doing it by rows costs nothing extra: ROUND-RECT-SPANS
+already produces one span per row, so the difference is a lookup and at most two
+pieces per row."
+  (let* ((outer (round-rect-spans x y width height radius))
+         (inner (round-rect-spans (+ x thickness) (+ y thickness)
+                                  (max 0 (- width thickness thickness))
+                                  (max 0 (- height thickness thickness))
+                                  (max 0 (- radius thickness))))
+         (holes (make-hash-table :test #'eql))
+         (spans '()))
+    (dolist (span inner) (setf (gethash (second span) holes) span))
+    (dolist (span outer (nreverse spans))
+      (destructuring-bind (sx sy sw sh) span
+        (let ((hole (gethash sy holes)))
+          (if hole
+              (destructuring-bind (hx hole-y hw hole-h) hole
+                (declare (ignore hole-y hole-h))
+                ;; Left of the hole, and right of it. A row through the middle
+                ;; of the outline gives both; a row through the top gives
+                ;; neither, because there is no hole in that row at all.
+                (when (> hx sx) (push (list sx sy (- hx sx) sh) spans))
+                (let ((right (+ hx hw)) (end (+ sx sw)))
+                  (when (> end right) (push (list right sy (- end right) sh) spans))))
+              (push span spans)))))))
+
 (defun %box-ops (view frame)
   "The fill for a box or a container background, rounded when asked, over the
 shadow it casts when it is raised.
@@ -90,7 +125,15 @@ transparent, and a shadow under nothing is a bug rather than a feature."
                 (list :fill-round-rect (rect-x frame) (rect-y frame)
                       (rect-width frame) (rect-height frame) radius (colour fill))
                 (list :fill-rect (rect-x frame) (rect-y frame)
-                      (rect-width frame) (rect-height frame) (colour fill))))))))
+                      (rect-width frame) (rect-height frame) (colour fill)))))
+     ;; After the fill, because an outline is drawn ON the edge -- and without
+     ;; one, because an outline round nothing is exactly what a checkbox is.
+     (let ((border (view-prop view :border 0)))
+       (when (plusp border)
+         (list (list :stroke-rect (rect-x frame) (rect-y frame)
+                     (rect-width frame) (rect-height frame)
+                     radius border
+                     (colour (view-prop view :border-colour *border-colour*)))))))))
 
 (defmethod measure-kind ((kind (eql :image)) view constraints)
   (declare (ignore constraints))
@@ -205,6 +248,10 @@ cache. The GLES backend is six entry points because of this."
            (destructuring-bind (x y w h view-box commands ink) (rest op)
              (dolist (span (path-spans commands x y w h view-box))
                (apply #'clipped (append span (list ink))))))
+          (:stroke-rect
+           (destructuring-bind (x y w h radius thickness ink) (rest op)
+             (dolist (span (stroke-spans x y w h radius thickness))
+               (apply #'clipped (append span (list ink))))))
           ;; An image is the one operation that does NOT reduce to rectangles.
           ;; A backend which only fills rectangles cannot draw one, and silently
           ;; dropping it would leave a hole nobody could account for.
@@ -280,7 +327,7 @@ percent of the screen damaged, which is how that was found."
 (defun op-bounds (op)
   "The rectangle an operation paints in, or NIL for one that paints nothing."
   (case (first op)
-    ((:fill-rect :fill-round-rect :image :path :clip-push)
+    ((:fill-rect :fill-round-rect :image :path :clip-push :stroke-rect)
      (destructuring-bind (x y w h &rest ignored) (rest op)
        (declare (ignore ignored))
        (rect x y w h)))

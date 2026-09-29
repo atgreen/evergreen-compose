@@ -1081,12 +1081,63 @@ identity, so a test that wants to compare two rectangles must compare numbers."
     (check "and it has two subpaths, the glass and its hole"
            2 (count :close commands :key #'first))))
 
+(defun test-borders ()
+  (format t "borders~%")
+  ;; An outline is the shape minus the shape inset by its thickness, so it is
+  ;; hollow -- which is the thing a nested box of the parent's colour is not.
+  (let ((target (make-surface 20 20 +white+)))
+    (draw target (render (layout '(box (:width 12 :height 12 :border 2
+                                        :border-colour "#ff0000"))
+                                 4 4)))
+    (check "the edge is drawn" (rgb 255 0 0) (pixel-at target 4 4))
+    (check "and the far edge too" (rgb 255 0 0) (pixel-at target 15 15))
+    (check "the middle is left alone" +white+ (pixel-at target 10 10))
+    (check "and so is everything outside" +white+ (pixel-at target 2 2))
+    ;; Two pixels thick, so the third pixel in is already through it.
+    (check "the outline is as thick as it was asked to be"
+           +white+ (pixel-at target 6 10)))
+  ;; An outline needs no fill. That is the whole reason it exists: an unchecked
+  ;; checkbox is an outline round nothing.
+  (check "a border with no fill still draws"
+         '(:stroke-rect)
+         (mapcar #'first (render (layout '(box (:width 10 :height 10 :border 1)) 0 0))))
+  (check "and with a fill, the outline goes on top of it"
+         '(:fill-rect :stroke-rect)
+         (mapcar #'first (render (layout '(box (:width 10 :height 10 :fill "#fff"
+                                                :border 1))
+                                         0 0))))
+  (check "no border, no operation"
+         '(:fill-rect)
+         (mapcar #'first (render (layout '(box (:width 10 :height 10 :fill "#fff")) 0 0))))
+  ;; Every backend that fills rectangles gets outlines, GLES included.
+  (check-true "an outline reduces to plain rectangles"
+              (> (length (flatten-to-rects
+                          (render (layout '(box (:width 10 :height 10 :border 2)) 0 0))))
+                 1))
+  ;; And the widgets that were waiting for it.
+  (let ((empty (checkbox nil)) (full (checkbox t)))
+    (check "an unchecked box is an outline" 2 (view-prop empty :border))
+    (check "with nothing inside it" 0 (length (view-children empty)))
+    (check "a checked one is filled instead" nil (view-prop full :border))
+    (check "and has a tick in it" 1 (length (view-children full)))
+    (check "in the colour that goes on it"
+           (theme :on-primary) (view-prop (first (view-children full)) :colour)))
+  (let ((off (radio nil)) (on (radio t)))
+    (check "a radio is always a ring" 2 (view-prop off :border))
+    (check "empty when unchosen" 0 (length (view-children off)))
+    (check "with a dot when chosen" 1 (length (view-children on)))
+    (check "and the ring takes the primary colour when it is"
+           (theme :primary) (view-prop on :border-colour)))
+  (check "an outlined card is flat, because the outline already separates it"
+         0 (view-prop (card nil :outlined t) :elevation))
+  (check "and it has an edge" 1 (view-prop (card nil :outlined t) :border)))
+
 (defun run-tests ()
   (setf *failures* 0 *checks* 0)
   (test-geometry) (test-paint) (test-font)
   (test-layout) (test-render) (test-raster)
   (test-input) (test-widgets) (test-constraints) (test-backend) (test-extension)
-  (test-utf8) (test-stacking) (test-text-field) (test-elevation) (test-stretch) (test-paths) (test-horizontal-list) (test-memo-across-frames) (test-damage) (test-damaged-drawing) (test-design-system) (test-screen-composites) (test-svg)
+  (test-utf8) (test-stacking) (test-text-field) (test-elevation) (test-stretch) (test-paths) (test-horizontal-list) (test-memo-across-frames) (test-damage) (test-damaged-drawing) (test-design-system) (test-screen-composites) (test-svg) (test-borders)
   (test-composites) (test-corners-and-clipping) (test-scroll) (test-clock) (test-virtual-list) (test-image)
   (format t "~%~D checks, ~D failures~%" *checks* *failures*)
   *failures*)
