@@ -889,12 +889,41 @@ identity, so a test that wants to compare two rectangles must compare numbers."
     (check-true "installing a backend forgets what was measured with the old font"
                 (plusp *measure-misses*))))
 
+(defun test-damage ()
+  (format t "damage~%")
+  (flet ((box (d) (and d (list (rect-x d) (rect-y d) (rect-width d) (rect-height d)))))
+    (let ((a '((:fill-rect 0 0 100 100 1) (:fill-rect 10 10 20 20 2))))
+      (check "an identical frame damages nothing" nil (box (display-damage a a)))
+      ;; A node rebuilt every frame is a different LIST and paints the identical
+      ;; rectangle. Comparing NODES calls that changed; comparing OPERATIONS does
+      ;; not, and on the device that is the difference between a damage region of
+      ;; 100% of the screen and one of 18%.
+      (check "and so does an equal-but-fresh copy" nil (box (display-damage (copy-tree a) a)))
+      (check "a moved operation damages where it went"
+             '(10 40 20 20)
+             (box (display-damage '((:fill-rect 0 0 100 100 1) (:fill-rect 10 40 20 20 2))
+                                  '((:fill-rect 0 0 100 100 1)))))
+      (check "an operation that vanished damages where it was"
+             '(10 10 20 20)
+             (box (display-damage '((:fill-rect 0 0 100 100 1)) a)))
+      (check "one that moved damages both ends"
+             '(10 10 20 50)
+             (box (display-damage '((:fill-rect 0 0 100 100 1) (:fill-rect 10 40 20 20 2)) a)))
+      (check "and damage is clamped to what is on screen"
+             '(10 10 5 5)
+             (box (display-damage '((:fill-rect 0 0 100 100 1)) a (rect 0 0 15 15))))))
+  ;; A shadow is blurred and dropped, so it dirties more than the box casting it.
+  (let ((d (op-bounds '(:shadow 20 20 10 10 0 4 2 0))))
+    (check "a shadow reaches past its own rectangle"
+           '(16 16 18 20) (list (rect-x d) (rect-y d) (rect-width d) (rect-height d))))
+  (check "a clip pop paints nothing and bounds nothing" nil (op-bounds '(:clip-pop))))
+
 (defun run-tests ()
   (setf *failures* 0 *checks* 0)
   (test-geometry) (test-paint) (test-font)
   (test-layout) (test-render) (test-raster)
   (test-input) (test-widgets) (test-constraints) (test-backend) (test-extension)
-  (test-utf8) (test-stacking) (test-text-field) (test-elevation) (test-stretch) (test-paths) (test-horizontal-list) (test-memo-across-frames)
+  (test-utf8) (test-stacking) (test-text-field) (test-elevation) (test-stretch) (test-paths) (test-horizontal-list) (test-memo-across-frames) (test-damage)
   (test-composites) (test-corners-and-clipping) (test-scroll) (test-clock) (test-virtual-list) (test-image)
   (format t "~%~D checks, ~D failures~%" *checks* *failures*)
   *failures*)

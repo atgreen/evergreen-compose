@@ -222,3 +222,102 @@ cache. The GLES backend is six entry points because of this."
                               (clipped (+ pen (* column scale))
                                        (+ y (* row scale))
                                        scale scale colour))))))))))))
+
+;;; ── Diagnostics: how much of a frame could be reused? ─────────────────
+;;;
+;;; The display list carries ABSOLUTE coordinates, so a node's operations are
+;;; reusable next frame only if the node is the same object AND lands in the
+;;; same place. Whether that is a large fraction or a rounding error decides
+;;; whether caching them is worth building, so it is measured first.
+
+(defun record-placement (placed)
+  "VIEW to (X Y WIDTH HEIGHT) for every node of a laid-out tree."
+  (let ((table (make-hash-table :test #'eq)))
+    (labels ((walk (node)
+               (let ((f (laid-out-frame node)))
+                 (setf (gethash (laid-out-view node) table)
+                       (list (rect-x f) (rect-y f) (rect-width f) (rect-height f))))
+               (mapc #'walk (laid-out-children node))))
+      (walk placed))
+    table))
+
+(defun placement-overlap (placed previous &optional bounds)
+  "MATCHED, TOTAL, and the DAMAGE rectangle.
+
+MATCHED and TOTAL count nodes that were the same view in the same place last
+frame -- the set whose operations could be reused verbatim. DAMAGE is the union
+of everything else, which is the more useful number: a backend that keeps its
+last frame need only redraw that rectangle, and node COUNT says nothing about
+how much of the screen it covers.
+
+BOUNDS clamps each contributing frame, and is not optional in practice. A
+virtual list's spacers stand in for every item it did not build, so one of them
+is as wide as the whole list -- 347,900 units for a five-thousand-card shelf --
+and an unclamped union is that wide too. The first attempt at this reported 91146
+percent of the screen damaged, which is how that was found."
+  (let ((matched 0) (total 0) (damage nil))
+    (labels ((walk (node)
+               (incf total)
+               (let ((f (laid-out-frame node))
+                     (was (and previous (gethash (laid-out-view node) previous))))
+                 (when (and was
+                            (eql (first was) (rect-x f))
+                            (eql (second was) (rect-y f))
+                            (eql (third was) (rect-width f))
+                            (eql (fourth was) (rect-height f)))
+                   (incf matched))
+                 (unless was
+                   ;; Changed, moved, or new. A node that merely MOVED damages
+                   ;; where it went; where it came FROM is damaged by whatever
+                   ;; replaced it, which is this same union on another node.
+                   (let ((visible (if bounds (rect-intersect f bounds) f)))
+                     (when visible
+                       (setf damage (if damage (rect-union damage visible) visible))))))
+               (mapc #'walk (laid-out-children node))))
+      (walk placed))
+    (values matched total damage)))
+
+(defun op-bounds (op)
+  "The rectangle an operation paints in, or NIL for one that paints nothing."
+  (case (first op)
+    ((:fill-rect :fill-round-rect :image :path :clip-push)
+     (destructuring-bind (x y w h &rest ignored) (rest op)
+       (declare (ignore ignored))
+       (rect x y w h)))
+    ;; A shadow is blurred and dropped, so it reaches past the rectangle casting it.
+    (:shadow (destructuring-bind (x y w h radius blur dy colour) (rest op)
+               (declare (ignore radius colour))
+               (rect (- x blur) (- y blur) (+ w blur blur) (+ h blur blur dy))))
+    (:glyphs (destructuring-bind (x y text scale colour) (rest op)
+               (declare (ignore colour))
+               (multiple-value-bind (w h) (text-extent text scale)
+                 (rect x y w h))))
+    (t nil)))
+
+(defun display-damage (new old &optional bounds)
+  "The rectangle covering every operation that differs between OLD and NEW.
+
+Compared as OPERATIONS rather than as nodes, which is the whole point. A
+container rebuilt every frame is a different LIST but paints the identical
+rectangle in the identical place, so node identity calls it changed and its
+drawing is not. The root container is exactly that case, and it covers the whole
+screen, which is why a node-level damage region reported 100% every frame while
+43% of nodes were provably unmoved."
+  (let ((before (make-hash-table :test #'equal))
+        (damage nil))
+    (dolist (op old) (incf (gethash op before 0)))
+    (flet ((mark (op)
+             (let ((box (op-bounds op)))
+               (when box
+                 (let ((visible (if bounds (rect-intersect box bounds) box)))
+                   (when visible
+                     (setf damage (if damage (rect-union damage visible) visible))))))))
+      ;; Painted now and not before.
+      (dolist (op new)
+        (let ((seen (gethash op before 0)))
+          (if (plusp seen)
+              (setf (gethash op before) (1- seen))
+              (mark op))))
+      ;; Painted before and not now: whatever it left behind must be covered.
+      (maphash (lambda (op count) (when (plusp count) (mark op))) before))
+    damage))

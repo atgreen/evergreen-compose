@@ -28,3 +28,11 @@ this so a view cannot paint outside the surface."
 (defun rect-contains-p (r x y)
   (and (<= (rect-x r) x) (< x (rect-right r))
        (<= (rect-y r) y) (< y (rect-bottom r))))
+
+(defun rect-union (a b)
+  "The smallest rectangle containing both."
+  (let ((x (min (rect-x a) (rect-x b)))
+        (y (min (rect-y a) (rect-y b))))
+    (rect x y
+          (- (max (rect-right a) (rect-right b)) x)
+          (- (max (rect-bottom a) (rect-bottom b)) y))))

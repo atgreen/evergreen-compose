@@ -3,7 +3,7 @@
   (:use :cl)
   (:export
    ;; geometry
-   :rect :rect-x :rect-y :rect-width :rect-height :rect-right :rect-bottom
+   :rect :rect-x :rect-y :rect-width :rect-height :rect-right :rect-bottom :rect-union
    ;; paint
    :rgb :rgba :colour-red :colour-green :colour-blue :colour-alpha
    :+black+ :+white+ :+transparent+ :mix-colours :blend
@@ -15,6 +15,7 @@
    ;; display list
    :render :flatten-to-rects :colour :measure-kind :render-kind :round-rect-spans
    :shadow-rects :shadow-op :*shadow-colour* :path-spans :flatten-path
+   :record-placement :placement-overlap :display-damage :op-bounds
    ;; backends
    :surface :make-surface :surface-width :surface-height :surface-pixels
    :draw :clear :pixel-at :write-ppm :ascii-art :draw-image :surface-rect
