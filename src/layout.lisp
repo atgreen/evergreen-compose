@@ -84,7 +84,12 @@ object under the same constraints has the same size by construction.")
         (max-width (constraints-max-width constraints))
         (min-height (constraints-min-height constraints))
         (max-height (constraints-max-height constraints))
-        (entries (gethash view *measured*)))
+        (entries (or (gethash view *measured*)
+                     ;; Measured in an earlier frame and handed back unchanged:
+                     ;; promote it, so it survives into this generation too.
+                     (let ((old (and *measured-previous*
+                                     (gethash view *measured-previous*))))
+                       (when old (setf (gethash view *measured*) old))))))
     ;; Walked rather than ASSOCed against a freshly consed key: building the key
     ;; cost an allocation on every call including the hits, and EQUAL on two
     ;; four-element lists cost more than comparing four numbers.
@@ -167,17 +172,21 @@ the whole result, not just the child sizes, is what makes a container cost one
 distribution pass per layout instead of two.")
 
 (defun metrics-memo (view constraints compute)
-  "COMPUTE's values for VIEW under CONSTRAINTS, remembered for this pass."
+  "COMPUTE's values for VIEW under CONSTRAINTS, remembered across frames."
   (let* ((cache (or *stacked* (make-hash-table :test #'eq)))
          (key (list (constraints-min-width constraints)
                     (constraints-max-width constraints)
                     (constraints-min-height constraints)
                     (constraints-max-height constraints)))
-         (hit (assoc key (gethash view cache) :test #'equal)))
+         (entries (or (gethash view cache)
+                      (let ((old (and *stacked-previous*
+                                      (gethash view *stacked-previous*))))
+                        (when old (setf (gethash view cache) old)))))
+         (hit (assoc key entries :test #'equal)))
     (if hit
         (values-list (cdr hit))
         (let ((computed (multiple-value-list (funcall compute view constraints))))
-          (setf (gethash view cache) (cons (cons key computed) (gethash view cache)))
+          (setf (gethash view cache) (cons (cons key computed) entries))
           (values-list computed)))))
 
 (defun stack-metrics (view constraints)
@@ -331,12 +340,44 @@ placement pass a cache hit at every level and the whole walk linear."
     (:center (floor free 2))
     (:end free)))
 
+(defvar *measured-previous* nil "The generation before *MEASURED*. See LAYOUT.")
+(defvar *stacked-previous* nil)
+
 (defun layout (view x y &optional (constraints (unbounded)))
-  "Place VIEW at (X, Y) under CONSTRAINTS; return a tree of absolute frames."
+  "Place VIEW at (X, Y) under CONSTRAINTS; return a tree of absolute frames.
+
+The memo survives BETWEEN layouts, in two generations.
+
+A node's size is a function of the node and the constraints, and a view tree is
+never mutated -- it is rebuilt. So the same LIST OBJECT under the same
+constraints has the same size next frame as it had this one, and if an
+application hands back a subtree it did not change, the whole subtree is already
+measured. That is the payoff the EQ-keyed memo was always able to give and never
+got, because the table was thrown away at the end of every pass.
+
+Two generations rather than one, because the alternative is a table that grows
+by every node of every frame for the life of the process. Lookups check the new
+table then the old one, promoting what they find; at the end of a top-level
+layout the new becomes the old and a fresh one starts. A node reused every frame
+therefore stays for ever and a node built once is gone within two frames."
   (check-view view)
-  (let ((*measured* (or *measured* (make-hash-table :test #'eq)))
-        (*stacked* (or *stacked* (make-hash-table :test #'eq))))
-    (%layout view x y constraints)))
+  (if *measured*
+      (%layout view x y constraints)
+      ;; The previous generation is deliberately NOT rebound here: it has to
+      ;; outlive this call, and rebinding it means the SETF below writes to a
+      ;; binding that is thrown away on the way out -- which is exactly the bug
+      ;; that made this whole change do nothing, with the measure count
+      ;; unmoved at 121 a frame.
+      (let ((*measured* (make-hash-table :test #'eq))
+            (*stacked* (make-hash-table :test #'eq)))
+        (multiple-value-prog1 (%layout view x y constraints)
+          (setf *measured-previous* *measured*
+                *stacked-previous* *stacked*)))))
+
+(defun forget-layout ()
+  "Drop both memo generations. For anything that invalidates every size at once
+-- a new backend, and therefore a new font, is the case that exists."
+  (setf *measured-previous* nil *stacked-previous* nil))
 
 (defun %layout (view x y constraints)
   (multiple-value-bind (width height) (measure view constraints)

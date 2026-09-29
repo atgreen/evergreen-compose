@@ -847,12 +847,54 @@ identity, so a test that wants to compare two rectangles must compare numbers."
                       0 0)))
     (check "a vertical one still clamps against its height" 400 (scroll-by node 0 1000))))
 
+(defun test-memo-across-frames ()
+  (format t "memo across frames~%")
+  ;; A view tree is rebuilt, never mutated, so the same LIST under the same
+  ;; constraints has the same size next frame as it had this one. That is what
+  ;; lets an application hand back an unchanged subtree and have it cost nothing.
+  (let ((tree `(column (:gap 2 :width 100 :height 200)
+                 ,@(loop for i from 0 below 8
+                         collect `(label (:text "x" :size 2))))))
+    (forget-layout)
+    (setf *measure-misses* 0)
+    (layout tree 0 0 (constraints 0 100 0 200))
+    (let ((first-pass *measure-misses*))
+      (check-true "the first pass measures something" (plusp first-pass))
+      (setf *measure-misses* 0)
+      (layout tree 0 0 (constraints 0 100 0 200))
+      (check "handing back the same tree measures nothing at all" 0 *measure-misses*)
+      ;; A tree that is EQUAL but not EQ is a different tree as far as this is
+      ;; concerned, which is the whole point: identity is the cheap question.
+      (setf *measure-misses* 0)
+      (layout (copy-tree tree) 0 0 (constraints 0 100 0 200))
+      (check "an identical copy is measured again" first-pass *measure-misses*)))
+  ;; Two generations, so a node built once does not live for ever.
+  (let ((kept `(label (:text "kept" :size 2))))
+    (forget-layout)
+    (layout `(column () ,kept) 0 0 (constraints 0 100 0 200))
+    (dotimes (i 3)
+      (layout `(column () ,kept ,`(label (:text ,(format nil "gone~D" i) :size 2)))
+              0 0 (constraints 0 100 0 200)))
+    (setf *measure-misses* 0)
+    (layout `(column () ,kept) 0 0 (constraints 0 100 0 200))
+    ;; The column is new each time and must be measured; KEPT must not be.
+    (check-true "a node reused every frame survives" (< *measure-misses* 3)))
+  ;; A new backend means a new font, so every remembered size is wrong.
+  (let ((tree `(label (:text "x" :size 2))))
+    (forget-layout)
+    (layout tree 0 0)
+    (use-backend (make-software-backend 10 10))
+    (setf *measure-misses* 0)
+    (layout tree 0 0)
+    (check-true "installing a backend forgets what was measured with the old font"
+                (plusp *measure-misses*))))
+
 (defun run-tests ()
   (setf *failures* 0 *checks* 0)
   (test-geometry) (test-paint) (test-font)
   (test-layout) (test-render) (test-raster)
   (test-input) (test-widgets) (test-constraints) (test-backend) (test-extension)
-  (test-utf8) (test-stacking) (test-text-field) (test-elevation) (test-stretch) (test-paths) (test-horizontal-list)
+  (test-utf8) (test-stacking) (test-text-field) (test-elevation) (test-stretch) (test-paths) (test-horizontal-list) (test-memo-across-frames)
   (test-composites) (test-corners-and-clipping) (test-scroll) (test-clock) (test-virtual-list) (test-image)
   (format t "~%~D checks, ~D failures~%" *checks* *failures*)
   *failures*)

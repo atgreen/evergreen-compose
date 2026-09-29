@@ -39,6 +39,11 @@ appears -- which is not a hypothetical, it is a bug this framework had.")
   "Install BACKEND's text metrics, so layout measures what will be drawn."
   (let ((metrics (backend-text-metrics backend)))
     (when metrics (setf *measure-text* metrics)))
+  ;; Unconditionally: every remembered size was measured with whatever font was
+  ;; installed before, and the memo now outlives a frame, so a stale entry
+  ;; outlives the reason it was right. A backend with no metrics of its own does
+  ;; not make that safer -- it leaves the PREVIOUS backend's installed.
+  (forget-layout)
   backend)
 
 (defun draw-frame (backend view)
