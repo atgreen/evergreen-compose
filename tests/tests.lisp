@@ -952,12 +952,51 @@ identity, so a test that wants to compare two rectangles must compare numbers."
             (setf same nil))))
       (check-true "a damaged redraw is pixel-identical to a full one" same))))
 
+(defun test-design-system ()
+  (format t "design system~%")
+  (check "a size has a name" 3 (type-size :title))
+  (check "and a number is still a size" 7 (type-size 7))
+  (check "a space has a name" 12 (space :medium))
+  (check "and a number is still a space" 5 (space 5))
+  (check "an unknown size lists the ones there are"
+         t (handler-case (progn (type-size :enormous) nil) (error () t)))
+  (check "an unknown scheme does too"
+         t (handler-case (progn (use-scheme :sepia) nil) (error () t)))
+  ;; THE point of roles. A button's label takes the ON-colour of the surface it
+  ;; sits on, in whichever scheme is installed. It used to say :INK -- white --
+  ;; which is legible on the dark scheme's accent and invisible on the light
+  ;; scheme's, and no test could have caught that because there was one scheme.
+  (flet ((label-colour (view)
+           (view-prop (first (view-children view)) :colour))
+         (background (view) (view-prop view :background)))
+    (let ((*theme* *theme*))
+      (use-scheme :dark)
+      (let ((b (button "Save" :id :s)))
+        (check "on the dark scheme a button is primary" (theme :primary) (background b))
+        (check "and its label is the colour that goes on primary"
+               (theme :on-primary) (label-colour b)))
+      (use-scheme :light)
+      (let ((b (button "Save" :id :s)))
+        (check "on the light scheme the button follows" (theme :primary) (background b))
+        (check "and so does its label" (theme :on-primary) (label-colour b)))
+      (check "the two schemes really differ"
+             nil (equal (getf *schemes* :dark) (getf *schemes* :light)))
+      ;; A disabled button pairs too, rather than reusing the enabled ink.
+      (let ((b (button "Save" :id :s :disabled t)))
+        (check "a disabled button is the disabled surface" (theme :disabled) (background b))
+        (check "with the colour that goes on it" (theme :on-disabled) (label-colour b)))
+      (use-scheme :dark)
+      (check "switching schemes keeps the radius" 10 (theme-value :radius))
+      (check "and an override survives it"
+             255 (progn (use-scheme :dark :primary "#ff0000")
+                        (colour-red (theme :primary)))))))
+
 (defun run-tests ()
   (setf *failures* 0 *checks* 0)
   (test-geometry) (test-paint) (test-font)
   (test-layout) (test-render) (test-raster)
   (test-input) (test-widgets) (test-constraints) (test-backend) (test-extension)
-  (test-utf8) (test-stacking) (test-text-field) (test-elevation) (test-stretch) (test-paths) (test-horizontal-list) (test-memo-across-frames) (test-damage) (test-damaged-drawing)
+  (test-utf8) (test-stacking) (test-text-field) (test-elevation) (test-stretch) (test-paths) (test-horizontal-list) (test-memo-across-frames) (test-damage) (test-damaged-drawing) (test-design-system)
   (test-composites) (test-corners-and-clipping) (test-scroll) (test-clock) (test-virtual-list) (test-image)
   (format t "~%~D checks, ~D failures~%" *checks* *failures*)
   *failures*)

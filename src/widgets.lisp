@@ -18,15 +18,82 @@
 ;;;; pressed -- take an explicit :ID from the caller. Inferring identity from
 ;;;; tree position is where this kind of framework usually goes wrong.
 
-(defparameter *theme*
-  '(:surface "#101820" :ink "#ffffff" :muted "#a0b0c0"
-    :raised "#1b2735" :accent "#4080ff" :accent-pressed "#2a5fcf" :disabled "#30404f"
-    :radius 10 :elevation 2)
-  "What widgets read for their appearance, as a plist so an application can
-rebind or replace it. Non-colour entries live here too: a corner radius is a
-theme decision, not a per-call one.")
+;;;; The design system.
+;;;;
+;;;; Colours are ROLES, not names. The old theme had :ACCENT and :INK, and every
+;;;; widget that wanted a coloured surface had to decide for itself what text
+;;;; goes on it -- BUTTON hard-coded ink on accent, which is legible on a dark
+;;;; scheme by luck and unreadable on a light one. Material's answer is to pair
+;;;; every colour with its ON-colour and make that the unit a widget asks for,
+;;;; and it is the right answer: a widget should say "a primary surface" and be
+;;;; told both halves.
+;;;;
+;;;; Sizes and spaces are NAMES for the same reason. :SIZE 4 for a title and 2
+;;;; for a caption appeared at every call site, so a screen was consistent only
+;;;; by the author remembering; and changing the scale meant finding them all.
 
-(defun theme (key) (colour (getf *theme* key "#ff00ff")))
+(defparameter *schemes*
+  '(:dark (:surface "#101820" :on-surface "#ffffff"
+           :surface-variant "#1b2735" :on-surface-variant "#a0b0c0"
+           :primary "#4080ff" :on-primary "#ffffff" :primary-pressed "#2a5fcf"
+           :error "#ff5252" :on-error "#ffffff"
+           :outline "#30404f" :disabled "#30404f" :on-disabled "#7a8896"
+           :scrim "#000000b0")
+    :light (:surface "#fbfcfe" :on-surface "#121417"
+            :surface-variant "#e6ebf2" :on-surface-variant "#48525e"
+            :primary "#2a5fcf" :on-primary "#ffffff" :primary-pressed "#1b3f8f"
+            :error "#b3261e" :on-error "#ffffff"
+            :outline "#c2cad4" :disabled "#dfe4ea" :on-disabled "#9aa4b0"
+            :scrim "#00000060"))
+  "Colour by ROLE, in two schemes. Every surface names the colour that goes ON
+it, so a widget never has to guess and a scheme can be swapped whole.")
+
+(defparameter *type-scale*
+  '(:display 5 :headline 4 :title 3 :body 2 :label 2 :caption 1)
+  "Text sizes by name. Material's own scale is display/headline/title/body/label,
+and these are those, coarser: a size here multiplies the glyph height and is
+therefore a whole number, so the scale has five steps rather than fifteen.")
+
+(defparameter *spacing*
+  '(:none 0 :tight 4 :small 8 :medium 12 :large 16 :huge 24)
+  "Padding and gaps by name, on a four-unit grid.")
+
+(defparameter *theme*
+  (append (getf *schemes* :dark) '(:radius 10 :elevation 2))
+  "What widgets read for their appearance, as a plist so an application can
+rebind or replace it with LET. Non-colour entries live here too: a corner radius
+is a theme decision, not a per-call one.")
+
+(defun theme (key)
+  "The colour for a role. An unknown role is magenta rather than an error,
+because a missing colour should be visible on screen and not fatal in a frame."
+  (colour (getf *theme* key "#ff00ff")))
+
+(defun use-scheme (name &rest overrides)
+  "Replace the colours in *THEME* with scheme NAME's, keeping everything else."
+  (let ((scheme (or (getf *schemes* name)
+                    (error "No such scheme: ~S. There are ~{~S~^ and ~}."
+                           name (loop for (key nil) on *schemes* by #'cddr collect key)))))
+    (setf *theme* (append overrides scheme
+                          (list :radius (theme-value :radius 10)
+                                :elevation (theme-value :elevation 2))))))
+
+(defun type-size (name)
+  "A size from the type scale, or NAME itself when it is already a number --
+so a caller with a reason can still say what it means."
+  (if (numberp name)
+      name
+      (or (getf *type-scale* name)
+          (error "No such text size: ~S. There are ~{~S~^ ~}."
+                 name (loop for (key nil) on *type-scale* by #'cddr collect key)))))
+
+(defun space (name)
+  "A distance from the spacing scale, or NAME itself when it is already a number."
+  (if (numberp name)
+      name
+      (or (getf *spacing* name)
+          (error "No such space: ~S. There are ~{~S~^ ~}."
+                 name (loop for (key nil) on *spacing* by #'cddr collect key)))))
 
 (defun theme-value (key &optional default)
   "A non-colour theme entry, returned as-is."
@@ -41,18 +108,22 @@ stays centred when GROW makes the button wider than its text.
 
 PRESSED and DISABLED are told, not remembered -- the caller holds that state and
 passes it in, which is what lets the whole interface stay a function of a model."
-  (let ((pad (max 6 (round size 2))))
+  (let ((size (type-size size))
+        (pad (max 6 (round (type-size size) 2))))
     `(column (:padding ,pad
               :background ,(cond (disabled (theme :disabled))
-                                 (pressed (theme :accent-pressed))
-                                 (t (theme :accent)))
+                                 (pressed (theme :primary-pressed))
+                                 (t (theme :primary)))
               :radius ,(theme-value :radius 0)
               :id ,id
               :align :center :cross-align :center
               ,@(when grow (list :grow grow))
               ,@(unless disabled (list :on-press on-press)))
        (label (:text ,label :size ,size
-               :colour ,(if disabled (theme :muted) (theme :ink)))))))
+               ;; The ON-colour of the surface it sits on, not a guess. This
+               ;; said :INK before, which is white, which is legible on the dark
+               ;; scheme's accent and invisible on the light scheme's.
+               :colour ,(if disabled (theme :on-disabled) (theme :on-primary)))))))
 
 (defun spacer (&key (width 0) (height 0) grow)
   "Empty space. A box with no :fill emits nothing to draw, so this costs a node
@@ -64,7 +135,8 @@ every container."
   `(box (:width ,width :height ,height ,@(when grow (list :grow grow)))))
 
 (defun text (string &key (size 2) (colour nil))
-  `(label (:text ,string :size ,size :colour ,(or colour (theme :ink)))))
+  `(label (:text ,string :size ,(type-size size)
+           :colour ,(or colour (theme :on-surface)))))
 
 (defun toggle (label &key id on-press on (size 3) grow)
   "A button whose accent shows its state. ON is told, like PRESSED."
@@ -96,9 +168,9 @@ bad model cannot draw outside its own track."
   (let ((fraction (max 0 (min 1 value))))
     `(row (:width ,width :height ,height :radius ,(floor height 2)
            :clip t
-           :background ,(or background (theme :disabled)))
+           :background ,(or background (theme :surface-variant)))
        (box (:width ,(round (* width fraction)) :height ,height
-             :fill ,(or colour (theme :accent)))))))
+             :fill ,(or colour (theme :primary)))))))
 
 (defun switch (&key id on position on-change (width 52) (height 28))
   "A track with a knob. ON is told, like every other widget state.
@@ -114,15 +186,17 @@ as one thing instead of the knob sliding across a track that snaps."
          (fraction (max 0 (min 1 (or position (if on 1 0)))))
          (travel (max 0 (- width 8 knob))))
     `(row (:width ,width :height ,height :cross-align :center :padding 4
-           :background ,(mix-colours (theme :disabled) (theme :accent) fraction)
+           :background ,(mix-colours (theme :surface-variant) (theme :primary) fraction)
            :radius ,(floor height 2)
            :id ,id ,@(when on-change (list :on-press on-change)))
        ,(spacer :width (round (* fraction travel)))
-       (box (:width ,knob :height ,knob :fill ,(theme :ink) :radius ,(floor knob 2))))))
+       (box (:width ,knob :height ,knob :fill ,(theme :on-primary)
+             :radius ,(floor knob 2))))))
 
 (defun labelled (text-string child &key (gap 6) (size 2))
   "CHILD with a caption above it."
-  `(column (:gap ,gap) ,(text text-string :size size :colour (theme :muted)) ,child))
+  `(column (:gap ,(space gap))
+     ,(text text-string :size size :colour (theme :on-surface-variant)) ,child))
 
 (defun scroll (children &key id (offset 0) on-drag height width (axis :vertical))
   "A clipped container whose children are shifted by OFFSET along AXIS.
@@ -218,20 +292,21 @@ commits whole words, corrects what it committed a moment ago, and hands back
 characters nobody typed, so the editor is the truth and this only draws it."
   (let* ((focused (and id (eq id (text-focus-id))))
          (empty (or (null value) (string= value "")))
-         (pad (max 6 (round size 2)))
+         (size (type-size size))
+         (pad (max 6 (round (type-size size) 2)))
          (press (lambda (node)
                   (declare (ignore node))
                   (focus-text-field id value on-change))))
     `(box (:padding ,pad
            :radius ,(theme-value :radius 0)
-           :background ,(theme :disabled)
+           :background ,(theme :surface-variant)
            :id ,id
            ,@(when grow (list :grow grow))
            ,@(when id (list :on-press press)))
        (row (:gap 1 :cross-align :center)
          (label (:text ,(if empty (or placeholder "") value)
                  :size ,size
-                 :colour ,(if empty (theme :muted) (theme :ink))))
+                 :colour ,(if empty (theme :on-surface-variant) (theme :on-surface))))
          ,@(when focused
              ;; A caret is a filled rectangle the height of a line, which is why
              ;; this needs no primitive of its own. Measured from "M" rather than
@@ -239,7 +314,7 @@ characters nobody typed, so the editor is the truth and this only draws it."
              ;; does not change height as the text does.
              (list `(box (:width 2
                           :height ,(nth-value 1 (text-extent "M" size))
-                          :fill ,(theme :accent)))))))))
+                          :fill ,(theme :primary)))))))))
 
 (defun card (children &key (padding 12) (gap 8) elevation background radius grow stretch
                              id on-press)
@@ -250,7 +325,7 @@ delegating to Surface and eight hundred more of variants and design tokens;
 this is the six, and a caller who wants the variants writes them."
   `(column (:padding ,padding :gap ,gap
             :radius ,(or radius (theme-value :radius 0))
-            :background ,(or background (theme :raised))
+            :background ,(or background (theme :surface-variant))
             :elevation ,(or elevation (theme-value :elevation 0))
             ,@(when grow (list :grow grow))
             ,@(when stretch (list :stretch t))
@@ -264,7 +339,7 @@ this is the six, and a caller who wants the variants writes them."
 Stretches rather than taking a width, which is the whole reason it can be
 written at all: a divider that had to be told how wide it is would have to be
 told again every time its parent's padding changed."
-  `(box (:height ,thickness :stretch t :fill ,(or colour (theme :disabled)))))
+  `(box (:height ,thickness :stretch t :fill ,(or colour (theme :outline)))))
 
 ;;; ── Icons ─────────────────────────────────────────────────────────────
 ;;;
@@ -337,7 +412,7 @@ larger, wound against it, and the overlap cancels."
     (unless commands
       (error "No such icon: ~S. There are ~{~S~^ ~}." name (icon-names)))
     `(path (:commands ,commands :size ,size :view-box 24
-            :colour ,(or colour (theme :ink))))))
+            :colour ,(or colour (theme :on-surface))))))
 
 (defun icon-button (name &key id on-press (size 24) colour background)
   "An icon in a round tappable target."
