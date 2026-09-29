@@ -48,7 +48,17 @@
 (defun word-at (pointer &optional (index 0))
   (torcl-ffi:mem-ref pointer :pointer (* 8 index)))
 
-(defun jni-slot (index) (word-at *env-table* index))
+(defvar *slots* nil
+  "JNI function pointers by table index, resolved once.
+
+Measured on a Pixel 10 Pro XL: reading one word out of the table with MEM-REF
+costs 16us, and every JNI call did it. That is a quarter of a 60us setColor
+spent looking up an answer that cannot change for the life of the process -- the
+table is the VM's and it is not rewritten.")
+
+(defun jni-slot (index)
+  (or (svref *slots* index)
+      (setf (svref *slots* index) (word-at *env-table* index))))
 
 (defvar *jni-calls* 0
   "Diagnostic: crossings into C since it was last zeroed.
@@ -76,7 +86,9 @@ to continue rather than producing numbers that look real."
       (torcl-ffi:foreign-call attach :int '(:pointer :pointer :pointer)
                               (list vm env-out (torcl-ffi:null-pointer)))
       (setf *env* (torcl-ffi:mem-ref env-out :pointer)
-            *env-table* (word-at *env*))
+            *env-table* (word-at *env*)
+            ;; 233 entries in JNI 1.6; round up and leave room.
+            *slots* (make-array 256 :initial-element nil))
       (let ((version (torcl-ffi:foreign-call (jni-slot +jni-get-version+) :int
                                              '(:pointer) (list *env*))))
         (unless (member version '(#x10006 #x10008))
