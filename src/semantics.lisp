@@ -15,7 +15,8 @@
 ;;;; reach without DEX. Announcements are not, and they are what we can give.
 
 (defparameter +roles+
-  '(:button :checkbox :radio :switch :link :image :heading :text :field :list :item)
+  '(:button :checkbox :radio :switch :slider :link :image :heading :text :field
+    :list :item :dialog :tab)
   "What a node is, for something that cannot see it. Deliberately short: a role
 that no reader treats differently is a role that only costs a reader time.")
 

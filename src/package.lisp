@@ -38,7 +38,7 @@
    :*theme* :theme :theme-value :button :toggle :spacer :text
    :vstack :hstack :progress :switch :labelled :scroll :virtual-list :visible-range :image
    :text-field :card :divider :list-item :app-bar :scaffold :chip
-   :checkbox :radio
+   :checkbox :radio :snackbar :dialog :tabs :slider
    :*schemes* :*type-scale* :*spacing* :use-scheme :type-size :space
    :icon :icon-button :icon-names :*icons* :thick-line :circle-path
    ;; which field the keyboard is bound to

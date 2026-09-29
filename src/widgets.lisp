@@ -38,12 +38,14 @@
            :primary "#4080ff" :on-primary "#ffffff" :primary-pressed "#2a5fcf"
            :error "#ff5252" :on-error "#ffffff"
            :outline "#30404f" :disabled "#30404f" :on-disabled "#7a8896"
+           :inverse-surface "#e6ebf2" :on-inverse-surface "#121417"
            :scrim "#000000b0")
     :light (:surface "#fbfcfe" :on-surface "#121417"
             :surface-variant "#e6ebf2" :on-surface-variant "#48525e"
             :primary "#2a5fcf" :on-primary "#ffffff" :primary-pressed "#1b3f8f"
             :error "#b3261e" :on-error "#ffffff"
             :outline "#c2cad4" :disabled "#dfe4ea" :on-disabled "#9aa4b0"
+            :inverse-surface "#2b3038" :on-inverse-surface "#f2f5f9"
             :scrim "#00000060"))
   "Colour by ROLE, in two schemes. Every surface names the colour that goes ON
 it, so a widget never has to guess and a scheme can be swapped whole.")
@@ -542,3 +544,99 @@ which is what tells the two apart at a glance even before the shape does."
          (let ((dot (max 2 (- size 10))))
            (list `(box (:width ,dot :height ,dot :radius ,(floor dot 2)
                         :fill ,(theme :primary))))))))
+
+;;; ── Overlays and choosing ─────────────────────────────────────────────
+
+(defun snackbar (message &key action on-action)
+  "A brief message along the bottom, deliberately the inverse of the page.
+
+Inverse because that is what makes it read as a thing ON the screen rather than
+part of it, and because a role pair means the text is legible without anyone
+choosing a colour: :INVERSE-SURFACE carries :ON-INVERSE-SURFACE."
+  `(row (:padding ,(space :medium) :gap ,(space :medium)
+         :radius ,(theme-value :radius 0) :stretch t :elevation 3
+         :background ,(theme :inverse-surface)
+         :cross-align :center :role :item :merge t :label ,message)
+     ,(text message :size :body :colour (theme :on-inverse-surface))
+     ,(spacer :grow 1)
+     ,@(when action
+         (list (button action :id :snackbar-action :on-press on-action :size :label)))))
+
+(defun dialog (title content &key actions width height)
+  "A panel in the middle of a scrim that covers everything.
+
+The scrim carries an :ON-PRESS that does nothing, and that is the point: DISPATCH
+hands an event to the topmost node with a handler, so a full-screen one swallows
+every touch meant for what is behind it. A modal needs no modality concept --
+it needs to be on top and to have a handler."
+  `(box (:align :center :cross-align :center
+         :background ,(theme :scrim)
+         :role :dialog :label ,title
+         ,@(when width (list :width width))
+         ,@(when height (list :height height))
+         :id :scrim :on-press ,(lambda (node) (declare (ignore node)) nil))
+     ,(card (append (list (text title :size :title))
+                    content
+                    (when actions
+                      (list `(row (:gap ,(space :small))
+                               ,(spacer :grow 1)
+                               ,@actions))))
+            :elevation 6)))
+
+(defun tabs (labels selected &key on-select)
+  "A row of choices with a line under the chosen one.
+
+Every tab grows equally, so they share the width however many there are and
+however long their words -- which is the arrangement, and it is one :GROW."
+  `(column (:stretch t)
+     (row (:stretch t)
+       ,@(loop for label in labels
+               for index from 0
+               collect `(column (:grow 1 :padding ,(space :small)
+                                 :align :center :cross-align :center
+                                 :role :tab :merge t :label ,label
+                                 :value ,(= index selected)
+                                 ,@(when on-select
+                                     (list :id (intern (format nil "TAB-~D" index) :keyword)
+                                           :on-press
+                                           (let ((chosen index))
+                                             (lambda (node)
+                                               (declare (ignore node))
+                                               (funcall on-select chosen))))))
+                          ,(text label :size :label
+                                 :colour (if (= index selected)
+                                             (theme :primary)
+                                             (theme :on-surface-variant))))))
+     (row (:stretch t)
+       ,@(loop for index from 0 below (length labels)
+               collect `(box (:grow 1 :height 2
+                              :fill ,(if (= index selected)
+                                         (theme :primary)
+                                         (theme :outline))))))))
+
+(defun slider (value &key id on-change (width 200) (height 24))
+  "A track with a knob at VALUE, which runs from 0 to 1.
+
+The knob is placed by a SPACER that grows with the value, rather than by any
+absolute positioning, because a spacer is something the layout already does. The
+drag handler is built here and not asked for, because converting a finger's
+movement into a fraction needs the track's width and the slider is the only
+thing that knows it."
+  (let* ((fraction (max 0 (min 1 value)))
+         (knob (- height 4))
+         (travel (max 1 (- width knob)))
+         (drag (when on-change
+                 (lambda (node dx dy)
+                   (declare (ignore node dy))
+                   (funcall on-change (max 0 (min 1 (+ fraction (/ dx travel)))))))))
+    `(box (:width ,width :height ,height :cross-align :center
+           :role :slider :value ,fraction
+           ,@(when id (list :id id))
+           ,@(when drag (list :on-drag drag)))
+       (box (:width ,width :height 4 :radius 2 :fill ,(theme :surface-variant)))
+       (box (:width ,(max 1 (round (* fraction travel))) :height 4 :radius 2
+             :fill ,(theme :primary)))
+       (row (:cross-align :center)
+         ,(spacer :width (round (* fraction travel)))
+         (box (:width ,knob :height ,knob :radius ,(floor knob 2)
+               :fill ,(theme :primary)))))))

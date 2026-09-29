@@ -1212,12 +1212,61 @@ identity, so a test that wants to compare two rectangles must compare numbers."
          "City, field, London" (describe-node "City" :field "London"))
   (check "and a label alone is just the label" "Settings" (describe-node "Settings" nil nil)))
 
+(defun test-overlays ()
+  (format t "overlays and choosing~%")
+  ;; A modal needs no modality concept: DISPATCH gives the event to the topmost
+  ;; node with a handler, so a full-screen scrim with one swallows everything.
+  (let* ((screen (layout `(box ()
+                            ,(button "Behind" :id :behind :on-press (lambda (n) (declare (ignore n)) :reached))
+                            ,(dialog "Delete?" (list (text "This cannot be undone."))
+                                     :width 200 :height 200))
+                         0 0 (constraints 0 200 0 200)))
+         (hit (dispatch screen 100 100 :on-press)))
+    (check "a touch through the scrim lands on the scrim" :scrim (node-prop hit :id)))
+  (let ((no-scrim (layout `(box () ,(button "Behind" :id :behind
+                                            :on-press (lambda (n) (declare (ignore n)) nil)))
+                          0 0 (constraints 0 200 0 200))))
+    (check "and without the dialog it lands on what is behind"
+           :behind (node-prop (dispatch no-scrim 4 4 :on-press) :id)))
+  ;; Tabs share the width however many there are.
+  (let* ((placed (layout (tabs '("One" "Two" "Three") 1) 0 0 (constraints 0 300 0 100)))
+         (row (first (laid-out-children placed)))
+         (widths (mapcar (lambda (k) (rect-width (laid-out-frame k)))
+                         (laid-out-children row))))
+    (check "three tabs, equal widths" '(100 100 100) widths)
+    (check "and an indicator under each"
+           3 (length (laid-out-children (second (laid-out-children placed))))))
+  (check "the chosen tab is marked for a reader"
+         '(nil t nil)
+         (mapcar #'third (remove :tab (semantics (layout (tabs '("a" "b" "c") 1) 0 0
+                                                         (constraints 0 300 0 100)))
+                                 :key #'second :test-not #'eq)))
+  ;; A slider places its knob by a spacer that grows with the value.
+  (flet ((knob-x (value)
+           (let* ((placed (layout (slider value :width 200 :height 24) 0 0))
+                  (row (third (laid-out-children placed))))
+             (rect-x (laid-out-frame (second (laid-out-children row)))))))
+    (check "at zero the knob is at the start" 0 (knob-x 0))
+    (check "at one it is at the end" 180 (knob-x 1))
+    (check "and halfway is halfway" 90 (knob-x 1/2))
+    (check "a value past the end is clamped" 180 (knob-x 5))
+    (check "and one below the start too" 0 (knob-x -2)))
+  (check "a slider tells a reader where it is" 1/4
+         (third (first (semantics (layout (slider 1/4) 0 0)))))
+  ;; A snackbar is the inverse pair, so its text is legible without anyone
+  ;; choosing a colour.
+  (let ((bar (snackbar "Saved")))
+    (check "a snackbar is the inverse surface"
+           (theme :inverse-surface) (view-prop bar :background))
+    (check "and its text the colour that goes on it"
+           (theme :on-inverse-surface) (view-prop (first (view-children bar)) :colour))))
+
 (defun run-tests ()
   (setf *failures* 0 *checks* 0)
   (test-geometry) (test-paint) (test-font)
   (test-layout) (test-render) (test-raster)
   (test-input) (test-widgets) (test-constraints) (test-backend) (test-extension)
-  (test-utf8) (test-stacking) (test-text-field) (test-elevation) (test-stretch) (test-paths) (test-horizontal-list) (test-memo-across-frames) (test-damage) (test-damaged-drawing) (test-design-system) (test-screen-composites) (test-svg) (test-borders) (test-fling) (test-semantics)
+  (test-utf8) (test-stacking) (test-text-field) (test-elevation) (test-stretch) (test-paths) (test-horizontal-list) (test-memo-across-frames) (test-damage) (test-damaged-drawing) (test-design-system) (test-screen-composites) (test-svg) (test-borders) (test-fling) (test-semantics) (test-overlays)
   (test-composites) (test-corners-and-clipping) (test-scroll) (test-clock) (test-virtual-list) (test-image)
   (format t "~%~D checks, ~D failures~%" *checks* *failures*)
   *failures*)
