@@ -1462,12 +1462,97 @@ identity, so a test that wants to compare two rectangles must compare numbers."
     (check "flatten turns a rounded clip into rows" 20 (length rects))
     (check-true "the first of which is inset" (< (third (first rects)) 20))))
 
+(defun test-paragraph ()
+  (format t "text that wraps~%")
+  ;; The built-in font is a fixed 5x7 grid: at scale 1 every character is
+  ;; +GLYPH-ADVANCE+ wide, so the arithmetic below is exact rather than
+  ;; approximate, and a failure means the breaking is wrong and not the font.
+  (let ((w (text-extent "aaaa" 1)))
+    (check "four characters fit in their own width"
+           '("aaaa") (wrap-text "aaaa" 1 w))
+    ;; Breaking happens at spaces.
+    (check "and a fifth word goes to the next line"
+           '("aaaa" "bbbb") (wrap-text "aaaa bbbb" 1 w))
+    ;; Two words that DO fit together stay together: a greedy fill, not one
+    ;; word per line.
+    (check-true "words that fit share a line"
+                (= 1 (length (wrap-text "aa bb" 1 (text-extent "aa bb" 1)))))
+    ;; A single word wider than the line is split rather than allowed to run
+    ;; off the edge, which is what not wrapping looked like.
+    (let ((lines (wrap-text "aaaaaaaa" 1 w)))
+      (check "an over-long word is split" 2 (length lines))
+      (check "and nothing is lost" "aaaaaaaa"
+             (apply #'concatenate 'string lines)))
+    ;; No width at all means unbounded, not zero.
+    (check "an unbounded width does not break" '("aaaa bbbb")
+           (wrap-text "aaaa bbbb" 1 nil)))
+  ;; Newlines are the writer's own breaks and survive, blank lines included.
+  (check "a newline breaks a line" '("one" "two") (wrap-text "one
+two" 1 nil))
+  (check "and a blank line is kept" 3 (length (wrap-text "one
+
+two" 1 nil)))
+  ;; MAX-LINES truncates, and the ellipsis has to FIT -- a truncation that
+  ;; itself overflows looks deliberate and is worse than none.
+  (let* ((w (text-extent "aaaaaa" 1))
+         (lines (wrap-text "aaaa bbbb cccc" 1 w :max-lines 1)))
+    (check "max-lines cuts the block" 1 (length lines))
+    (check-true "the last line ends in an ellipsis"
+                (search "..." (first lines)))
+    (check-true "and still fits" (<= (text-extent (first lines) 1) w)))
+  ;; The block size is the widest line by the total height.
+  (multiple-value-bind (w h) (wrapped-extent '("aa" "bbbb") 1)
+    (check "the block is as wide as its widest line" (text-extent "bbbb" 1) w)
+    (check "and as tall as its lines together"
+           (* 2 (nth-value 1 (text-extent "aa" 1))) h))
+  ;; As a primitive: measured against the constraints it is given, which is the
+  ;; whole reason it cannot be a defun.
+  (let ((view '(paragraph (:text "aaaa bbbb cccc" :size 1))))
+    (multiple-value-bind (w h) (measure view (constraints 0 (text-extent "aaaa" 1) 0 1000))
+      (check "a narrow paragraph is as wide as it is allowed" (text-extent "aaaa" 1) w)
+      (check "and three lines tall" (* 3 (nth-value 1 (text-extent "a" 1))) h))
+    (multiple-value-bind (w h) (measure view (unbounded))
+      (declare (ignore w))
+      (check "given room, it is one line" (nth-value 1 (text-extent "a" 1)) h)))
+  ;; It renders one glyph run per line, each on its own row.
+  (let ((ops (render (layout '(paragraph (:text "aaaa bbbb" :size 1)) 0 0
+                             (constraints 0 (text-extent "aaaa" 1) 0 100)))))
+    (check "one glyph op per line" 2 (length ops))
+    (check "the first line is the first word" "aaaa" (fourth (first ops)))
+    (check-true "and the second is below it"
+                (> (third (second ops)) (third (first ops)))))
+  ;; A paragraph takes the width it is OFFERED, not the width of its longest
+  ;; line. Without this, render re-breaks at a narrower width than measure used
+  ;; -- which showed on the phone as a :MAX-LINES paragraph whose last line held
+  ;; nothing but the ellipsis, and a centred one that came out flush left.
+  (let ((wide (* 4 (text-extent "aaaa bbbb" 1))))
+    (check "a paragraph fills the width it is given" wide
+           (nth-value 0 (measure '(paragraph (:text "aa" :size 1))
+                                 (constraints 0 wide 0 1000)))))
+  (check "but not when there is no bound" (text-extent "aa" 1)
+         (nth-value 0 (measure '(paragraph (:text "aa" :size 1)) (unbounded))))
+  ;; The truncated line keeps its text: re-wrapping the ellipsised result is
+  ;; what ate it before.
+  (let* ((w (text-extent "aaaa bbbb cc" 1))
+         (ops (render (layout '(paragraph (:text "aaaa bbbb cccc dddd eeee" :size 1
+                                           :max-lines 2))
+                              0 0 (constraints 0 w 0 1000)))))
+    (check "a truncated paragraph draws both its lines" 2 (length ops))
+    (check-true "and the last one is more than an ellipsis"
+                (> (length (fourth (second ops))) (length "..."))))
+  ;; Alignment moves each line inside the block rather than moving the block.
+  (let* ((wide (* 4 (text-extent "aa" 1)))
+         (centred (render (layout '(paragraph (:text "aa" :size 1 :align :center))
+                                  0 0 (constraints 0 wide 0 100)))))
+    (check-true "a centred line is indented"
+                (plusp (second (first centred))))))
+
 (defun run-tests ()
   (setf *failures* 0 *checks* 0)
   (test-geometry) (test-paint) (test-font)
   (test-layout) (test-render) (test-raster)
   (test-input) (test-widgets) (test-constraints) (test-backend) (test-extension)
-  (test-utf8) (test-stacking) (test-text-field) (test-elevation) (test-stretch) (test-paths) (test-horizontal-list) (test-memo-across-frames) (test-damage) (test-damaged-drawing) (test-design-system) (test-screen-composites) (test-svg) (test-borders) (test-fling) (test-semantics) (test-overlays) (test-nested-scroll) (test-bring-into-view) (test-saved-state) (test-platform-view) (test-rounded-clipping)
+  (test-utf8) (test-stacking) (test-text-field) (test-elevation) (test-stretch) (test-paths) (test-horizontal-list) (test-memo-across-frames) (test-damage) (test-damaged-drawing) (test-design-system) (test-screen-composites) (test-svg) (test-borders) (test-fling) (test-semantics) (test-overlays) (test-nested-scroll) (test-bring-into-view) (test-saved-state) (test-platform-view) (test-rounded-clipping) (test-paragraph)
   (test-composites) (test-corners-and-clipping) (test-scroll) (test-clock) (test-virtual-list) (test-image)
   (format t "~%~D checks, ~D failures~%" *checks* *failures*)
   *failures*)

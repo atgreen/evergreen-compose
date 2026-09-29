@@ -92,6 +92,27 @@
                                                   (bliss:blur-text-field)))))))
     (cdr *fields*)))
 
+(defun blurb (width)
+  "A paragraph long enough to need several lines, and a truncated one beside it.
+
+The case bliss-b5f fixed: before this a label ran off the edge and was clipped,
+so every screen in this demo used only short strings -- which is exactly how a
+framework ends up with no line breaking."
+  `(column (:padding ,(bliss:space :medium) :gap ,(bliss:space :small)
+            :width ,width)
+     ;; One SOURCE line each. A newline in the literal is a newline in the
+     ;; string, and WRAP-TEXT honours it -- which is right, and looks exactly
+     ;; like a wrapping bug when the author did not mean it.
+     ,(bliss:paragraph
+       "Bliss lays out a view tree that is ordinary Lisp data: a list whose head names a kind and whose tail is a plist of properties. This paragraph is one string handed to one node, broken to the width it was given."
+       :size 3)
+     ,(bliss:paragraph
+       "Two lines and then an ellipsis, wherever the text runs out of room. The ellipsis is shortened until the line carrying it fits, because a truncation that overflows looks deliberate rather than accidental."
+       :size 2 :max-lines 2
+       :colour (bliss:theme :on-surface-variant))
+     ,(bliss:paragraph "centred, and wrapping" :size 2 :align :center
+                       :colour (bliss:theme :primary))))
+
 (defun clipped-banner (width)
   "Two full-bleed stripes inside a rounded container.
 
@@ -257,6 +278,7 @@ frame: EQUAL on a seven-element list is cheap, PRIN1 is not."
                      ,(third (chrome))
                      ,(shelf width)
                      ,(clipped-banner width)
+                     ,(blurb (- width 32))
                      ,(web-panel width)
                      ,@(fields))
                   (fourth (chrome))

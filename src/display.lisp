@@ -229,6 +229,67 @@ transparent, and a shadow under nothing is a bug rather than a feature."
                   (view-prop view :view-box 24) commands
                   (colour (view-prop view :colour +black+)))))))
 
+(defmethod measure-kind ((kind (eql :paragraph)) view constraints)
+  "Text broken to the width it is given.
+
+The one primitive that genuinely needs its constraints: a :LABEL is as wide as
+its string, and a paragraph is as wide as it is allowed to be and as tall as
+that makes it."
+  (multiple-value-bind (top right bottom left) (padding-of view)
+    (let* ((max-width (constraints-max-width constraints))
+           (room (when max-width (max 0 (- max-width left right))))
+           (lines (wrap-text (view-prop view :text "") (view-prop view :size 1) room
+                             :max-lines (view-prop view :max-lines))))
+      (multiple-value-bind (w h) (wrapped-extent lines (view-prop view :size 1))
+        ;; AS WIDE AS IT IS ALLOWED, not as wide as its widest line -- a block of
+        ;; text, not a label. Three things break otherwise, and all three were
+        ;; visible on the phone:
+        ;;
+        ;; RENDER re-breaks at the FRAME width, and if the frame shrank to the
+        ;; widest line then measure and render are breaking at different widths.
+        ;; For ordinary wrapping the two agree by accident; for :MAX-LINES they
+        ;; do not, and the second pass re-wrapped the already-truncated text and
+        ;; left a line holding nothing but the ellipsis.
+        ;;
+        ;; :ALIGN has nothing to centre within when the block is exactly as wide
+        ;; as its content, so a centred paragraph came out flush left.
+        ;;
+        ;; And a ragged-right column that shrinks to its longest line makes the
+        ;; whole block jump sideways whenever the text changes.
+        ;;
+        ;; A caller who wants shrink-to-fit wants TEXT, which is one line and
+        ;; measures its own string.
+        (values (if room (+ room left right) (+ w left right))
+                (+ h top bottom))))))
+
+(defmethod render-kind ((kind (eql :paragraph)) view frame)
+  "One :GLYPHS operation per line.
+
+Broken again here rather than carried over from measurement, because a frame is
+not a measurement: a grower is measured loosely and placed tight, so the width
+that decided the lines and the width they are drawn at are different numbers.
+WRAP-TEXT is memoised, so the second break is a hash lookup."
+  (multiple-value-bind (top right bottom left) (padding-of view)
+    (declare (ignore bottom))
+    (let* ((scale (view-prop view :size 1))
+           (ink (colour (view-prop view :colour +black+)))
+           (width (max 0 (- (rect-width frame) left right)))
+           (lines (wrap-text (view-prop view :text "") scale width
+                             :max-lines (view-prop view :max-lines)))
+           (align (view-prop view :align :start))
+           (y (+ (rect-y frame) top)))
+      (loop for line in lines
+            append (multiple-value-bind (w h) (text-extent line scale)
+                     (prog1
+                         (list (list :glyphs
+                                     (+ (rect-x frame) left
+                                        (ecase align
+                                          (:start 0)
+                                          (:center (floor (- width w) 2))
+                                          (:end (- width w))))
+                                     y line scale ink))
+                       (incf y h)))))))
+
 (defgeneric render-kind (kind view frame)
   (:documentation "The display operations a VIEW of KIND contributes at FRAME,
 as a list, painted before its children.

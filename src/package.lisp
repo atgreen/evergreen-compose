@@ -44,6 +44,7 @@
    :*schemes* :*type-scale* :*spacing* :use-scheme :type-size :space
    :icon :icon-button :icon-names :*icons* :thick-line :circle-path
    ;; which field the keyboard is bound to
+   :paragraph :wrap-text :wrapped-extent
    :*text-input* :focus-text-field :blur-text-field :pump-text-input :text-focus-id
    ;; state that outlives the process
    :*state-store* :save-state :restore-state

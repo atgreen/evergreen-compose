@@ -141,6 +141,20 @@ every container."
            :role :text :label ,string
            :colour ,(or colour (theme :on-surface)))))
 
+(defun paragraph (string &key (size 3) colour (align :start) max-lines padding grow)
+  "Text that wraps to the width it is given.
+
+TEXT is one line however long it is; this is the one to reach for when the
+string is a sentence rather than a word. ALIGN is :START, :CENTER or :END, and
+MAX-LINES truncates with an ellipsis."
+  `(paragraph (:text ,string :size ,(type-size size)
+               :role :text :label ,string
+               :align ,align
+               ,@(when max-lines (list :max-lines max-lines))
+               ,@(when padding (list :padding padding))
+               ,@(when grow (list :grow grow))
+               :colour ,(or colour (theme :on-surface)))))
+
 (defun toggle (label &key id on-press on (size 3) grow)
   "A button whose accent shows its state. ON is told, like PRESSED."
   (button (format nil "~A: ~:[off~;on~]" label on)
