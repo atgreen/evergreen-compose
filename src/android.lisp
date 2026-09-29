@@ -124,6 +124,14 @@ different, and the backend's surface already holds the rest."
         (present (host-backend host) display damage)
         (host-blit host)))))
 
+(defvar *touch-events* 0
+  "Diagnostic: touch events drained since it was last zeroed.
+
+Worth counting separately from frames. Too few, and the finger is outrunning
+what we are told about it, which is a delivery problem. Plenty, and the motion
+is merely being redrawn at the frame rate, which is a cost problem. The two feel
+the same and are fixed in different places.")
+
 (defun host-pump-touches (host)
   "Drain the touch queue and dispatch. Returns true if anything changed.
 
@@ -137,18 +145,25 @@ the widget the press armed -- which is what lets a finger slide off to cancel."
   (let ((acted nil))
     (loop for event = (multiple-value-list (android:poll-touch))
           while (first event)
-          do (destructuring-bind (action x y) event
+          do (incf *touch-events*)
+             (destructuring-bind (action x y) event
                (multiple-value-bind (lx ly)
                    (scale-point (truncate x) (truncate y)
                                 (host-x-ratio host) (host-y-ratio host))
-                 (let* ((placed (host-placed host))
-                        (hit (and placed
-                                  (hit-test placed lx ly
-                                            (lambda (n) (node-prop n :on-press))))))
+                 (let ((placed (host-placed host)))
+                   ;; Looked up only where it is USED, which is the press and
+                   ;; the release. A drag asked for it too and threw it away,
+                   ;; and a drag is fourteen of every sixteen events: measured on
+                   ;; a Pixel 10 Pro XL, that was 31-79ms a frame, as much as
+                   ;; drawing, and invisible because nothing timed this loop.
+                   (flet ((hit ()
+                            (and placed
+                                 (hit-test placed lx ly
+                                           (lambda (n) (node-prop n :on-press))))))
                    (case action
                      ;; Both edges owe a frame: a press changes the held
                      ;; highlight even when it fires nothing.
-                     (0 (setf *pressed* (and hit (node-prop hit :id))
+                     (0 (setf *pressed* (let ((hit (hit))) (and hit (node-prop hit :id)))
                               acted t
                               (host-dragging host) nil
                               (host-drag-origin host) (cons lx ly)
@@ -176,12 +191,13 @@ the widget the press armed -- which is what lets a finger slide off to cancel."
                                          (- lx (car last)) (- ly (cdr last))))
                               (setf (host-drag-last host) (cons lx ly)
                                     acted t)))))
-                     (1 (when (and hit *pressed* (not (host-dragging host))
-                                   (eq *pressed* (node-prop hit :id)))
-                          (funcall (node-prop hit :on-press) hit))
+                     (1 (let ((hit (hit)))
+                          (when (and hit *pressed* (not (host-dragging host))
+                                     (eq *pressed* (node-prop hit :id)))
+                            (funcall (node-prop hit :on-press) hit)))
                         (setf *pressed* nil acted t
                               (host-drag-node host) nil
-                              (host-dragging host) nil)))))))
+                              (host-dragging host) nil))))))))
     acted))
 
 (defun run-android-app (window view-function &key (design-width 360) (design-height 747))
