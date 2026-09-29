@@ -303,17 +303,6 @@ how the whole phone responds to touch."
              (bliss:pump-text-input)
              (when bliss:*dirty*
                (setf bliss:*dirty* nil)
-               (when (and *reveal* (bliss:host-placed host))
-                 (let ((id *reveal*))
-                   (setf *reveal* nil)
-                   (multiple-value-bind (scroller delta)
-                       (bliss:bring-into-view
-                        (bliss:host-placed host)
-                        (lambda (n) (eq (bliss:node-prop n :id) id)))
-                     (when scroller
-                       (setf *page* (bliss:scroll-by scroller *page* delta))
-                       (android:log (format nil "revealed ~A by ~D" id delta))
-                       (bliss:invalidate)))))
                (bliss:with-frame-clock (host)
                  ;; Spend a little of the fling, and ask for another frame while
                  ;; there is any left. ANIMATING is what keeps them coming.
@@ -326,5 +315,23 @@ how the whole phone responds to touch."
                                              (bliss:frame-delta)))
                          (setf *shelf-velocity* 0.0)))
                    (bliss:animating))
-                 (draw-timed host #'ui)))
+                 (draw-timed host #'ui))
+               ;; AFTER the draw, not before it. HOST-PLACED is last frame's
+               ;; layout, and when the keyboard has just opened last frame is
+               ;; still the full-height screen -- on which the field is already
+               ;; visible and the answer is zero. Asking once the shorter frame
+               ;; has been laid out is what makes this work at all; doing it
+               ;; first looked right, logged nothing, and left the field under
+               ;; the keyboard.
+               (when (and *reveal* (bliss:host-placed host))
+                 (let ((id *reveal*))
+                   (setf *reveal* nil)
+                   (multiple-value-bind (scroller delta)
+                       (bliss:bring-into-view
+                        (bliss:host-placed host)
+                        (lambda (n) (eq (bliss:node-prop n :id) id)))
+                     (when scroller
+                       (setf *page* (bliss:scroll-by scroller *page* delta))
+                       (android:log (format nil "revealed ~A by ~D" id delta))
+                       (bliss:invalidate))))))
              (sleep 0.008))))
