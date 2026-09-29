@@ -1368,12 +1368,55 @@ identity, so a test that wants to compare two rectangles must compare numbers."
     (check "and #. is not evaluated on the way back in"
            :cold (restore-state :cold))))
 
+(defun test-platform-view ()
+  (format t "a hole for a real platform View~%")
+  ;; It lays out like anything else: a row places it, a size is honoured, and
+  ;; the frame that comes out is what the host has to put the real View at.
+  (let* ((tree (layout `(column (:padding 10)
+                          (box (:width 50 :height 20))
+                          ,(platform-view :id :web :width 100 :height 40))
+                       0 0))
+         (rects (platform-view-rects tree)))
+    (check "one view is found" 1 (length rects))
+    (destructuring-bind (id fn x y w h visible) (first rects)
+      (declare (ignore fn))
+      (check "by its id" :web id)
+      (check "placed below its sibling and inside the padding" '(10 30) (list x y))
+      (check "at the size it asked for" '(100 40) (list w h))
+      (check-true "and visible with no clip given" visible)))
+  ;; Scale is per axis, because the buffer's aspect is not the display's.
+  (let ((rects (platform-view-rects
+                (layout (platform-view :id :web :width 10 :height 10) 4 6)
+                :x-scale 3 :y-scale 2)))
+    (destructuring-bind (id fn x y w h visible) (first rects)
+      (declare (ignore id fn visible))
+      (check "logical units are scaled to pixels per axis" '(12 12 30 20) (list x y w h))))
+  ;; A node with no :ID cannot be told from a new one next frame, so it is not
+  ;; reported at all rather than attached and then leaked.
+  (check "a view with no id is ignored"
+         '() (platform-view-rects (layout (platform-view :width 10 :height 10) 0 0)))
+  ;; The only clipping a child View allows: gone when it has left entirely.
+  (let ((tree (layout (platform-view :id :web :width 10 :height 10) 0 200)))
+    (check-true "inside the viewport it is visible"
+                (seventh (first (platform-view-rects tree :clip (rect 0 0 100 300)))))
+    (check "scrolled out of it, it is not"
+           nil (seventh (first (platform-view-rects tree :clip (rect 0 0 100 100))))))
+  ;; It paints nothing, so whatever is behind shows through -- until a caller
+  ;; asks for a placeholder, which is what a desktop and this test can see.
+  (check "it contributes no display operations"
+         '() (render (layout (platform-view :id :web :width 10 :height 10) 0 0)))
+  (check "unless a placeholder is asked for"
+         1 (length (render (layout (list :platform-view
+                                         (list :id :web :width 10 :height 10
+                                               :placeholder +black+))
+                                   0 0)))))
+
 (defun run-tests ()
   (setf *failures* 0 *checks* 0)
   (test-geometry) (test-paint) (test-font)
   (test-layout) (test-render) (test-raster)
   (test-input) (test-widgets) (test-constraints) (test-backend) (test-extension)
-  (test-utf8) (test-stacking) (test-text-field) (test-elevation) (test-stretch) (test-paths) (test-horizontal-list) (test-memo-across-frames) (test-damage) (test-damaged-drawing) (test-design-system) (test-screen-composites) (test-svg) (test-borders) (test-fling) (test-semantics) (test-overlays) (test-nested-scroll) (test-bring-into-view) (test-saved-state)
+  (test-utf8) (test-stacking) (test-text-field) (test-elevation) (test-stretch) (test-paths) (test-horizontal-list) (test-memo-across-frames) (test-damage) (test-damaged-drawing) (test-design-system) (test-screen-composites) (test-svg) (test-borders) (test-fling) (test-semantics) (test-overlays) (test-nested-scroll) (test-bring-into-view) (test-saved-state) (test-platform-view)
   (test-composites) (test-corners-and-clipping) (test-scroll) (test-clock) (test-virtual-list) (test-image)
   (format t "~%~D checks, ~D failures~%" *checks* *failures*)
   *failures*)

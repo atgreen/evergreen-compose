@@ -92,6 +92,32 @@
                                                   (bliss:blur-text-field)))))))
     (cdr *fields*)))
 
+(defparameter *web-html*
+  "<html><body style='margin:0;padding:10px;background:#3949ab;color:#fff;font:15px sans-serif'><b>A real WebView.</b> Chrome is rendering this, inside a Bliss column. <ul style='margin:6px 0 0 18px'><li>text you can select</li><li>a <i>list</i> Bliss never drew</li></ul></body></html>")
+
+(defun web-panel (width)
+  "A WebView, laid out by Bliss and drawn by Chrome.
+
+Inline HTML, so it needs no INTERNET permission -- the point is that this is a
+platform View and not something Bliss could have painted, not that it is online.
+Watch it while scrolling: it slides OVER the app bar rather than under it, which
+is the z-order limitation in SRC/PLATFORM-VIEW.LISP being honest on screen."
+  (bliss:platform-view
+   :id :web :width (- width 32) :height 120
+   :placeholder (bliss:theme :surface-variant)
+   :view (lambda ()
+           (let ((view (bliss:make-platform-view "android/webkit/WebView")))
+             ;; loadDataWithBaseURL rather than loadData: loadData treats its
+             ;; argument as a URL, so the first "#" in a CSS colour starts a
+             ;; fragment and the rest of the document is thrown away. The
+             ;; symptom is a WebView that is plainly THERE and plainly blank.
+             (bliss:platform-view-call
+              view "android/webkit/WebView" "loadDataWithBaseURL"
+              "(Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;)V"
+              (list :null) (list :string *web-html*) (list :string "text/html")
+              (list :string "utf-8") (list :null))
+             view))))
+
 (defun toggle-scheme ()
   "Swap light for dark. The cached chrome holds COLOURS, so it has to go."
   (setf *scheme* (if (eq *scheme* :dark) :light :dark))
@@ -217,6 +243,7 @@ frame: EQUAL on a seven-element list is cheap, PRIN1 is not."
                             :cross-align :stretch)
                      ,(third (chrome))
                      ,(shelf width)
+                     ,(web-panel width)
                      ,@(fields))
                   (fourth (chrome))
                   (fifth (chrome))
@@ -358,6 +385,9 @@ how the whole phone responds to touch."
                          (setf *shelf-velocity* 0.0)))
                    (bliss:animating))
                  (draw-timed host #'ui))
+               ;; After the draw, because the rectangle comes from the frame
+               ;; that was just laid out.
+               (bliss:sync-platform-views host)
                ;; AFTER the draw, not before it. HOST-PLACED is last frame's
                ;; layout, and when the keyboard has just opened last frame is
                ;; still the full-height screen -- on which the field is already

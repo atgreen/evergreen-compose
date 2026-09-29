@@ -299,6 +299,165 @@ the widget the press armed -- which is what lets a finger slide off to cancel."
                               (host-dragging host) nil))))))))
     acted))
 
+;;;; ── a real platform View over the surface ──────────────────────────────
+;;;;
+;;;; The portable half is SRC/PLATFORM-VIEW.LISP: it reserves the rectangle and
+;;;; says where it ended up. This half is the part that has no desktop
+;;;; equivalent and cannot be tested without a phone -- it attaches an actual
+;;;; android.view.View to the window and moves it when the layout does.
+
+(defvar *platform-views* (make-hash-table :test #'eql)
+  "ID -> (VIEW PARAMS GEOMETRY): the Views this process has attached, their
+FrameLayout.LayoutParams, and the (X Y WIDTH HEIGHT VISIBLE) last pushed to the
+platform. Keyed by the node's :ID, which is what makes the same View in the next
+frame the same View.")
+
+(defparameter +wm-class+ "android/view/WindowManager")
+(defparameter +wm-params-class+ "android/view/WindowManager$LayoutParams")
+
+(defvar *window-manager* nil "The Activity's WindowManager, as a global reference.")
+
+(defun window-manager ()
+  (or *window-manager*
+      (setf *window-manager*
+            (main-object +jni-call-object-method-a+
+                         (list (java-activity)
+                               (java-method +activity-class+ "getWindowManager"
+                                            "()Landroid/view/WindowManager;")
+                               (jni-args))))))
+
+(defun main-set-int-field (object class-name field value)
+  "Set a public int field on OBJECT from the main thread.
+
+WindowManager.LayoutParams keeps x, y and gravity as public fields with no
+setters, so there is no method to call."
+  (main-call +jni-set-int-field+
+             (list object (jni-field (java-class class-name) field "I") value)
+             :void))
+
+(defun make-platform-view (class-name)
+  "A new View of CLASS-NAME, built on the main thread, as a GLOBAL reference.
+
+CLASS-NAME is a JNI class name -- \"android/webkit/WebView\" -- and the class
+must have the one-argument (Context) constructor that every Android widget has.
+Made on the MAIN thread because a View's constructor may touch the view
+hierarchy, and ViewRootImpl throws CalledFromWrongThreadException for that from
+anywhere else."
+  (main-object +jni-new-object-a+
+               (list (java-class class-name)
+                     (java-method class-name "<init>" "(Landroid/content/Context;)V")
+                     (jni-args (list :object (java-activity))))))
+
+(defun platform-view-call (view class-name method signature &rest arguments)
+  "Call a void Java method on VIEW from the main thread.
+
+ARGUMENTS are (:INT n), (:OBJECT global-reference), (:NULL) for a null object,
+or (:STRING text), the last of which builds a Java string and releases it
+afterwards. This exists because
+every interesting thing about an embedded View -- WebView.loadData,
+VideoView.setVideoURI, MapView.onCreate -- is a Java call an application has to
+make for itself, and doing it by hand means knowing that the receiver must be a
+global reference and that a string made here is one too."
+  (let ((made '()))
+    (unwind-protect
+        (let ((spec (mapcar (lambda (argument)
+                              (case (first argument)
+                                (:string (let ((text (jni-string (second argument))))
+                                           (push text made)
+                                           (list :object text)))
+                                (:null (list :object (torcl-ffi:null-pointer)))
+                                (t argument)))
+                            arguments)))
+          (main-call +jni-call-void-method-a+
+                     (list view (java-method class-name method signature)
+                           (apply #'jni-args spec))
+                     :void))
+      (dolist (text made) (jni-delete-global text)))))
+
+(defun %attach-platform-view (id maker x y width height)
+  "Build the View for ID and give it its OWN window at those pixels.
+
+A CHILD WINDOW, not a child View, and that is the whole trick. Measured rather
+than assumed, and the opposite of what was expected: a NativeActivity's
+ANativeWindow and the Java view hierarchy are the SAME surface --
+`dumpsys SurfaceFlinger` shows one buffer layer, VRI-<package> -- so the two
+draw into one buffer and whoever posts last wins. We post a whole frame every
+time anything changes, so a View added with addContentView is attached, laid out
+and reported correctly by `uiautomator dump`, and completely invisible.
+
+WindowManager.addView with a sub-window type gives the View a surface of its
+own, which SurfaceFlinger composites ABOVE ours. That inverts the z-order
+problem rather than solving it: the embedded View is now always on top, and no
+Bliss widget can be drawn over it.
+
+TYPE_APPLICATION_PANEL (1000) is a sub-window of this Activity's window, so the
+WindowManager an Activity hands out fills in the parent token for us; a plain
+application window would need one and be refused without it."
+  (let ((view (funcall maker))
+        (params (main-object
+                 +jni-new-object-a+
+                 (list (java-class +wm-params-class+)
+                       (java-method +wm-params-class+ "<init>" "(IIIIIII)V")
+                       ;; w, h, x, y, type, flags, format. 40 =
+                       ;; FLAG_NOT_FOCUSABLE | FLAG_NOT_TOUCH_MODAL, so the
+                       ;; panel never steals the keyboard from the Bliss
+                       ;; surface; -3 = PixelFormat.TRANSLUCENT.
+                       (jni-args (list :int width) (list :int height)
+                                 (list :int x) (list :int y)
+                                 (list :int 1000) (list :int 40) (list :int -3))))))
+    ;; 51 = Gravity.TOP | Gravity.LEFT. Without it x and y are offsets from a
+    ;; centred position, which puts the panel half a screen from where it goes.
+    (main-set-int-field params +wm-params-class+ "gravity" 51)
+    (main-call +jni-call-void-method-a+
+               (list (window-manager)
+                     (java-method +wm-class+ "addView"
+                                  "(Landroid/view/View;Landroid/view/ViewGroup$LayoutParams;)V")
+                     (jni-args (list :object view) (list :object params)))
+               :void)
+    (setf (gethash id *platform-views*) (list view params nil))))
+
+(defun %move-platform-view (view params x y visible)
+  "Push one panel's geometry across. Four crossings, and only when it moved.
+
+Fields rather than setX/setY: those take a FLOAT, and a float cannot come back
+through the main-thread gate at all -- its result is not in an integer register.
+WindowManager.LayoutParams keeps x and y as public ints, which are words."
+  (main-set-int-field params +wm-params-class+ "x" x)
+  (main-set-int-field params +wm-params-class+ "y" y)
+  (main-call +jni-call-void-method-a+
+             (list view (java-method +view-class+ "setVisibility" "(I)V")
+                   ;; 0 = View.VISIBLE, 8 = View.GONE.
+                   (jni-args (list :int (if visible 0 8))))
+             :void)
+  (main-call +jni-call-void-method-a+
+             (list (window-manager)
+                   (java-method +wm-class+ "updateViewLayout"
+                                "(Landroid/view/View;Landroid/view/ViewGroup$LayoutParams;)V")
+                   (jni-args (list :object view) (list :object params)))
+             :void))
+
+(defun sync-platform-views (host)
+  "Attach and position every PLATFORM-VIEW in the frame just laid out.
+
+Called once a frame after the draw. Costs nothing on a frame where nothing
+moved: the geometry is compared first, and three JNI crossings -- about 300us --
+are paid only when it has actually changed."
+  (dolist (entry (platform-view-rects (host-placed host)
+                                      :x-scale (host-x-ratio host)
+                                      :y-scale (host-y-ratio host)
+                                      :clip (rect 0 0 (host-width host) (host-height host))))
+    (destructuring-bind (id maker x y width height visible) entry
+      (let ((known (gethash id *platform-views*)))
+        (unless known
+          (when maker
+            (setf known (%attach-platform-view id maker x y width height))))
+        (when known
+          (destructuring-bind (view params geometry) known
+            (let ((now (list x y width height visible)))
+              (unless (equal now geometry)
+                (%move-platform-view view params x y visible)
+                (setf (third (gethash id *platform-views*)) now)))))))))
+
 (defun run-android-app (window view-function &key (design-width 360) (design-height 747))
   "Run an application until its window goes away.
 

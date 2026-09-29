@@ -47,9 +47,11 @@
    :*text-input* :focus-text-field :blur-text-field :pump-text-input :text-focus-id
    ;; state that outlives the process
    :*state-store* :save-state :restore-state
+   ;; a real platform View inside the tree
+   :platform-view :platform-view-rects :sync-platform-views :make-platform-view :platform-view-call
    ;; JNI, and the Canvas backend over Android's own Skia
    :jni-start :jni-check :jni-find-class :jni-method :jni-string
-   :jni-text :jni-call-boolean :jni-call-int :jni-field :jni-int-field :jni-call-static-int :jni-release :with-local-refs :*jni-calls*
+   :jni-text :jni-call-boolean :jni-call-int :jni-field :jni-int-field :jni-call-static-int :jni-release :jni-delete-global :with-local-refs :*jni-calls*
    ;; the on-screen keyboard
    :show-keyboard :hide-keyboard :toggle-keyboard :keyboard-shown-p :key-character
    :attach-editor :editor-text :set-editor-text :start-text-input :accepting-text-p

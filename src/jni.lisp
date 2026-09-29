@@ -33,6 +33,7 @@
 (defconstant +jni-call-static-int-method-a+ 131)
 (defconstant +jni-get-field-id+ 94)
 (defconstant +jni-get-int-field+ 100)
+(defconstant +jni-set-int-field+ 109)
 (defconstant +jni-get-static-field-id+ 144)
 (defconstant +jni-get-static-object-field+ 145)
 (defconstant +jni-new-string-utf+ 167)
@@ -241,6 +242,18 @@ are not the one they typed."
         (torcl-ffi:foreign-call (jni-slot +jni-release-string-utf-chars+) :void
                                 '(:pointer :pointer :pointer)
                                 (list *env* string bytes))))))
+
+(defun jni-delete-global (global)
+  "Release a global reference.
+
+The counterpart of JNI-GLOBAL, and the one people forget: a global reference is
+never collected on its own, so one made per frame is a leak that grows for the
+life of the process. (It does NOT abort the way a local-reference overflow does
+-- 250,000 leaked globals survived a measurement, at about 45 bytes each -- so
+nothing tells you.)"
+  (unless (torcl-ffi:null-pointer-p global)
+    (torcl-ffi:foreign-call (jni-slot +jni-delete-global-ref+) :void
+                            '(:pointer :pointer) (list *env* global))))
 
 (defun jni-release (local)
   "Release a local reference.

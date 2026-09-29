@@ -20,6 +20,7 @@
                              (:file "path")
                              (:file "svg")
                              (:file "display")
+                             (:file "platform-view")
                              (:file "backend")
                              (:file "utf8")
                              (:module "backend"
