@@ -1307,12 +1307,42 @@ identity, so a test that wants to compare two rectangles must compare numbers."
     (check "something already visible needs no scrolling"
            0 (needed-scroll (scrolling-ancestor path) (car (last path))))))
 
+(defun test-bring-into-view ()
+  (format t "bring into view~%")
+  (flet ((page (target-height)
+           (layout (scroll (list `(column ()
+                                    (box (:width 40 :height 200 :id :above))
+                                    (box (:width 40 :height ,target-height :id :field))))
+                           :id :page :width 40 :height 100)
+                   0 0)))
+    (multiple-value-bind (scroller delta)
+        (bring-into-view (page 40) (lambda (n) (eq (node-prop n :id) :field)))
+      (check "the page is what has to move" :page (node-prop scroller :id))
+      (check "and it must move far enough to show the whole field" 140 delta)))
+  ;; Already visible: nothing to do, and NIL says so rather than zero, so a
+  ;; caller can tell "no move needed" from "moved by nothing".
+  (check "something already in view needs no scrolling"
+         nil (bring-into-view (layout (scroll (list '(box (:width 40 :height 40 :id :field)))
+                                              :id :page :width 40 :height 100)
+                                      0 0)
+                              (lambda (n) (eq (node-prop n :id) :field))))
+  (check "and a node that is not there at all is NIL too"
+         nil (bring-into-view (layout (scroll (list '(box (:width 40 :height 40)))
+                                              :id :page :width 40 :height 100)
+                                      0 0)
+                              (lambda (n) (eq (node-prop n :id) :missing))))
+  ;; A node with no scrolling ancestor cannot be brought anywhere.
+  (check "nor is there anything to do without a scroller"
+         nil (bring-into-view (layout '(column () (box (:width 10 :height 500 :id :field)))
+                                      0 0)
+                              (lambda (n) (eq (node-prop n :id) :field)))))
+
 (defun run-tests ()
   (setf *failures* 0 *checks* 0)
   (test-geometry) (test-paint) (test-font)
   (test-layout) (test-render) (test-raster)
   (test-input) (test-widgets) (test-constraints) (test-backend) (test-extension)
-  (test-utf8) (test-stacking) (test-text-field) (test-elevation) (test-stretch) (test-paths) (test-horizontal-list) (test-memo-across-frames) (test-damage) (test-damaged-drawing) (test-design-system) (test-screen-composites) (test-svg) (test-borders) (test-fling) (test-semantics) (test-overlays) (test-nested-scroll)
+  (test-utf8) (test-stacking) (test-text-field) (test-elevation) (test-stretch) (test-paths) (test-horizontal-list) (test-memo-across-frames) (test-damage) (test-damaged-drawing) (test-design-system) (test-screen-composites) (test-svg) (test-borders) (test-fling) (test-semantics) (test-overlays) (test-nested-scroll) (test-bring-into-view)
   (test-composites) (test-corners-and-clipping) (test-scroll) (test-clock) (test-virtual-list) (test-image)
   (format t "~%~D checks, ~D failures~%" *checks* *failures*)
   *failures*)

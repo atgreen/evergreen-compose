@@ -149,6 +149,20 @@ no relation to how fast the finger was moving."
 ;;; is not a question a node can answer. It is a question about the PATH taken
 ;;; to reach it, which is why these return one.
 
+(defun bring-into-view (root test)
+  "The scroller that must move to reveal the first node satisfying TEST, and how
+far. NIL when nothing matches, nothing scrolls, or nothing needs to move.
+
+The caller applies it, because the offset is the application's -- the same
+arrangement as every other piece of widget state. What the framework can do is
+the part that needs the tree: which scroller, and how far."
+  (let* ((path (node-path root test))
+         (scroller (and path (scrolling-ancestor path))))
+    (when scroller
+      (let ((delta (needed-scroll scroller (car (last path)))))
+        (unless (zerop delta)
+          (values scroller delta))))))
+
 (defun drag-scroll (node offset dx)
   "Scroll NODE by a finger movement of DX.
 

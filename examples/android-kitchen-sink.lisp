@@ -142,6 +142,7 @@
 
 (defparameter *insets* '(0 0 0 0))
 (defparameter *page* 0)
+(defparameter *reveal* nil)
 
 (defun ui (width height)
   (let ((screen (screen width height)))
@@ -291,12 +292,28 @@ how the whole phone responds to touch."
              ;; What the system is covering changes when the keyboard opens and
              ;; nothing tells us, so it is asked once a frame.
              (when (bliss:refresh-insets host)
-               (setf *insets* (bliss:host-insets host))
-               (android:log (format nil "insets now ~A" *insets*)))
+               (setf *insets* (bliss:host-insets host)
+                     ;; The keyboard just moved. Whatever has focus wants to be
+                     ;; on screen again -- but not until the NEXT frame, because
+                     ;; the layout has not shrunk yet and the answer would be
+                     ;; computed against the taller screen.
+                     *reveal* (bliss:text-focus-id))
+               (android:log (format nil "insets now ~A, reveal ~A" *insets* *reveal*)))
              ;; What the input method did, once a frame.
              (bliss:pump-text-input)
              (when bliss:*dirty*
                (setf bliss:*dirty* nil)
+               (when (and *reveal* (bliss:host-placed host))
+                 (let ((id *reveal*))
+                   (setf *reveal* nil)
+                   (multiple-value-bind (scroller delta)
+                       (bliss:bring-into-view
+                        (bliss:host-placed host)
+                        (lambda (n) (eq (bliss:node-prop n :id) id)))
+                     (when scroller
+                       (setf *page* (bliss:scroll-by scroller *page* delta))
+                       (android:log (format nil "revealed ~A by ~D" id delta))
+                       (bliss:invalidate)))))
                (bliss:with-frame-clock (host)
                  ;; Spend a little of the fling, and ask for another frame while
                  ;; there is any left. ANIMATING is what keeps them coming.

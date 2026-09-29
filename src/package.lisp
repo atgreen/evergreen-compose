@@ -33,7 +33,7 @@
    :announce :announce-node :accessibility-enabled-p :exploring-by-touch-p :describe-screen
    :window-insets
    :hit-test :dispatch :node-prop :scale-point :scroll-by :*drag-slop*
-   :hit-path :node-path :scrolling-ancestor :needed-scroll :drag-scroll
+   :hit-path :node-path :scrolling-ancestor :needed-scroll :drag-scroll :bring-into-view
    :fling-step :flinging-p :drag-velocity :*fling-friction* :*fling-minimum*
    :laid-out-content
    ;; widgets
