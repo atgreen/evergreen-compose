@@ -34,7 +34,7 @@
 (defun gl (name &rest arguments)
   (let ((entry (gethash name *gl*)))
     (unless entry (error "GL function not bound: ~A" name))
-    (torcl-ffi:foreign-call (first entry) (second entry) (third entry) arguments)))
+    (torcl::%ffi-call (first entry) (second entry) (third entry) arguments)))
 
 (defun gles-init (&optional (library (torcl-ffi:load-foreign-library "libGLESv2.so")))
   "Bind the GL entry points the backend uses. Call once the EGL context is
@@ -62,14 +62,14 @@ A phone can letterbox, rotate, or hand back a surface that is not the whole
 display, so the only trustworthy size is the one the surface itself reports.
 The EGL handles are passed in: this file draws, and does not own the context."
   (let ((query-fn (torcl-ffi:foreign-symbol-pointer "eglQuerySurface" egl-library))
-        (out (torcl-ffi:foreign-alloc 4)))
+        (out (ffi-alloc 4)))
     (unwind-protect
          (flet ((query (attribute)
-                  (torcl-ffi:foreign-call query-fn :int '(:pointer :pointer :int :pointer)
+                  (torcl::%ffi-call query-fn :int '(:pointer :pointer :int :pointer)
                                           (list display surface attribute out))
-                  (torcl-ffi:mem-ref out :int)))
+                  (ffi-ref out :int)))
            (values (query +egl-width+) (query +egl-height+)))
-      (torcl-ffi:foreign-free out))))
+      (ffi-free out))))
 
 (defparameter *last-clear-colour* nil
   "The colour currently set in the GL context, or NIL when unknown.

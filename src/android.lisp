@@ -55,7 +55,7 @@ told whether it is pressed without remembering anything itself.")
    (last-display :initform nil :accessor host-last-display)))
 
 (defun android-call (host name return types arguments)
-  (torcl-ffi:foreign-call
+  (torcl::%ffi-call
    (torcl-ffi:foreign-symbol-pointer name (host-library host)) return types arguments))
 
 (defun open-android-host (window &key (design-width 360) (design-height 747))
@@ -73,7 +73,7 @@ controls miss."
   (jni-start)
   (let* ((library (torcl-ffi:load-foreign-library "libandroid.so"))
          (host (make-instance 'android-host :window window :library library
-                              :buffer (torcl-ffi:foreign-alloc 48)
+                              :buffer (ffi-alloc 48)
                               :memcpy (torcl-ffi:foreign-symbol-pointer "memcpy")
                               :backend nil :width 0 :height 0 :x-ratio 1 :y-ratio 1)))
     ;; The window reports its NATIVE orientation, which on a portrait phone is
@@ -88,7 +88,7 @@ controls miss."
                     (list window design-width height 1))
       (android-call host "ANativeWindow_lock" :int '(:pointer :pointer :pointer)
                     (list window (host-buffer host) (torcl-ffi:null-pointer)))
-      (let ((width (torcl-ffi:mem-ref (host-buffer host) :int 8)))
+      (let ((width (ffi-ref (host-buffer host) :int 8)))
         (android-call host "ANativeWindow_unlockAndPost" :int '(:pointer) (list window))
         (android-call host "ANativeWindow_setBuffersGeometry" :int '(:pointer :int :int :int)
                       (list window width height 1))
@@ -108,8 +108,8 @@ opened at the window's own stride."
       (canvas-pixels (canvas-backend-canvas (host-backend host)))
     (android-call host "ANativeWindow_lock" :int '(:pointer :pointer :pointer)
                   (list (host-window host) (host-buffer host) (torcl-ffi:null-pointer)))
-    (torcl-ffi:foreign-call (host-memcpy host) :pointer '(:pointer :pointer :long)
-                            (list (torcl-ffi:mem-ref (host-buffer host) :pointer 16)
+    (torcl::%ffi-call (host-memcpy host) :pointer '(:pointer :pointer :long)
+                            (list (ffi-ref (host-buffer host) :pointer 16)
                                   source (* 4 stride (host-height host))))
     (canvas-release-pixels (canvas-backend-canvas (host-backend host)))
     (android-call host "ANativeWindow_unlockAndPost" :int '(:pointer)

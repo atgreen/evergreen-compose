@@ -44,8 +44,8 @@ text -- took the renderer down with \"integer argument is outside the unsigned
 
 (defun %utf8-at (bytes offset)
   "The code point encoded at OFFSET, and how many bytes it took."
-  (flet ((byte-at (n) (torcl-ffi:mem-ref bytes :uchar (+ offset n)))
-         (tail (n) (logand (torcl-ffi:mem-ref bytes :uchar (+ offset n)) #x3f)))
+  (flet ((byte-at (n) (ffi-ref bytes :uchar (+ offset n)))
+         (tail (n) (logand (ffi-ref bytes :uchar (+ offset n)) #x3f)))
     (let ((lead (byte-at 0)))
       (cond ((< lead #x80) (values lead 1))
             ((< lead #xe0) (values (logior (ash (logand lead #x1f) 6) (tail 1)) 2))
@@ -61,7 +61,7 @@ text -- took the renderer down with \"integer argument is outside the unsigned
   (let ((text (make-array 0 :element-type 'character :adjustable t :fill-pointer 0))
         (high nil)
         (offset 0))
-    (loop until (zerop (torcl-ffi:mem-ref bytes :uchar offset))
+    (loop until (zerop (ffi-ref bytes :uchar offset))
           do (multiple-value-bind (code width) (%utf8-at bytes offset)
                (incf offset width)
                ;; A high surrogate is held back: on its own it is not a

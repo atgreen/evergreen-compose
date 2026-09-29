@@ -415,12 +415,37 @@ how the whole phone responds to touch."
                                                "()Ljava/lang/CharSequence;")
                            (bliss::jni-args)))))))
 
+;;;; A REPL into this running app, when asked for.
+;;;;
+;;;; Opt-in through torcl.env, because loading slynk costs seconds and a few
+;;;; megabytes and most runs do not want it:
+;;;;
+;;;;   echo BLISS_LIVE_REPL=4005 > assets/torcl.env
+;;;;   adb forward tcp:4005 tcp:4005
+;;;;   icl --connect 127.0.0.1:4005
+
+(defun start-live-repl-if-asked ()
+  (let ((want (torcl-ext:getenv "BLISS_LIVE_REPL")))
+    (when (and want (plusp (length want)))
+      (handler-case
+          (let ((port (bliss:start-live-repl
+                       :port (or (parse-integer want :junk-allowed t) 4005))))
+            (android:log (format nil "live repl on ~D -- adb forward tcp:~D tcp:~D"
+                                 port port port)))
+        (error (e)
+          ;; A REPL that will not start must not take the application with it.
+          (android:log (format nil "live repl failed to start: ~A" e)))))))
+
 (defun android-main (window)
   (let ((host (bliss:open-android-host window)))
     (a11y-check host)
+    (start-live-repl-if-asked)
     (android:log (format nil "restored ~S" (restore-app-state)))
     (loop while (android:running-p)
-          do (when (timing :touches (bliss:host-pump-touches host)) (bliss:invalidate))
+          do ;; A request may have redefined anything -- a colour, a widget, the
+             ;; view function itself -- so a served request owes a frame.
+             (when (bliss:live-repl-poll) (bliss:invalidate))
+             (when (timing :touches (bliss:host-pump-touches host)) (bliss:invalidate))
              ;; What the system is covering changes when the keyboard opens and
              ;; nothing tells us, so it is asked once a frame.
              (when (bliss:refresh-insets host)

@@ -1,5 +1,25 @@
 (in-package :bliss)
 
+
+;;; ── Calling out ───────────────────────────────────────────────────────
+;;;
+;;; %FFI-CALL rather than TORCL-FFI:FOREIGN-CALL, everywhere in this file and in
+;;; the backends. They do the same thing -- FOREIGN-CALL is a two-line DEFUN
+;;; whose only job is to decide whether a variadic FIXED-COUNT was supplied --
+;;; but measured on a Pixel 10 Pro XL, warmed, 5000 iterations:
+;;;
+;;;   (torcl::%ffi-call fn :int '() '())        3.6 us
+;;;   (torcl-ffi:foreign-call fn :int '() '())  50.6 us
+;;;
+;;; The wrapper costs fourteen times the call it wraps. That is paid by every
+;;; JNI crossing, and PRESENT is nothing but JNI crossings -- profiled by
+;;; display-op kind, each operation's cost tracks the number of calls it makes
+;;; rather than the pixels it covers. Nothing here is variadic, so the wrapper
+;;; buys nothing at all.
+;;;
+;;; The wrapper being this expensive is itself a TorCL bug (torcl bliss-1dp);
+;;; when it is fixed this file can go back to the public name.
+
 ;;;; A small JNI layer: enough to call Android's Java API from Lisp.
 ;;;;
 ;;;; There is no JavaVM handed to us, so the running one is found through
@@ -50,7 +70,7 @@
 (defvar *env-table* nil "The JNIEnv function table, read once.")
 
 (defun word-at (pointer &optional (index 0))
-  (torcl-ffi:mem-ref pointer :pointer (* 8 index)))
+  (ffi-ref pointer :pointer (* 8 index)))
 
 (defvar *slots* nil
   "JNI function pointers by table index, resolved once.
@@ -79,21 +99,21 @@ wrong and every other index in this file would return fiction, so this refuses
 to continue rather than producing numbers that look real."
   (let* ((lib (torcl-ffi:load-foreign-library "libnativehelper.so"))
          (entry (torcl-ffi:foreign-symbol-pointer "JNI_GetCreatedJavaVMs" lib))
-         (vm-out (torcl-ffi:foreign-alloc 8))
-         (count-out (torcl-ffi:foreign-alloc 4)))
-    (torcl-ffi:foreign-call entry :int '(:pointer :int :pointer) (list vm-out 1 count-out))
-    (unless (plusp (torcl-ffi:mem-ref count-out :int))
+         (vm-out (ffi-alloc 8))
+         (count-out (ffi-alloc 4)))
+    (torcl::%ffi-call entry :int '(:pointer :int :pointer) (list vm-out 1 count-out))
+    (unless (plusp (ffi-ref count-out :int))
       (error "No Java VM is running in this process"))
-    (let* ((vm (torcl-ffi:mem-ref vm-out :pointer))
+    (let* ((vm (ffi-ref vm-out :pointer))
            (attach (word-at (word-at vm) 4))
-           (env-out (torcl-ffi:foreign-alloc 8)))
-      (torcl-ffi:foreign-call attach :int '(:pointer :pointer :pointer)
+           (env-out (ffi-alloc 8)))
+      (torcl::%ffi-call attach :int '(:pointer :pointer :pointer)
                               (list vm env-out (torcl-ffi:null-pointer)))
-      (setf *env* (torcl-ffi:mem-ref env-out :pointer)
+      (setf *env* (ffi-ref env-out :pointer)
             *env-table* (word-at *env*)
             ;; 233 entries in JNI 1.6; round up and leave room.
             *slots* (make-array 256 :initial-element nil))
-      (let ((version (torcl-ffi:foreign-call (jni-slot +jni-get-version+) :int
+      (let ((version (torcl::%ffi-call (jni-slot +jni-get-version+) :int
                                              '(:pointer) (list *env*))))
         (unless (member version '(#x10006 #x10008))
           (setf *env* nil)
@@ -104,12 +124,12 @@ to continue rather than producing numbers that look real."
   "Signal if a Java exception is pending, and clear it.
 Left pending, it makes the NEXT unrelated JNI call fail in a way that points at
 the wrong line."
-  (let ((thrown (torcl-ffi:foreign-call (jni-slot +jni-exception-occurred+) :pointer
+  (let ((thrown (torcl::%ffi-call (jni-slot +jni-exception-occurred+) :pointer
                                         '(:pointer) (list *env*))))
     (unless (torcl-ffi:null-pointer-p thrown)
       ;; Clear FIRST: with an exception pending, the toString call below would
       ;; itself fail, and the report would be "an exception was thrown" again.
-      (torcl-ffi:foreign-call (jni-slot +jni-exception-clear+) :void '(:pointer) (list *env*))
+      (torcl::%ffi-call (jni-slot +jni-exception-clear+) :void '(:pointer) (list *env*))
       (error "Java: ~A"
              (let* ((class (jni-find-class "java/lang/Object"))
                     (to-string (jni-method class "toString" "()Ljava/lang/String;")))
@@ -120,16 +140,16 @@ the wrong line."
   "Promote a local reference to a global one, so it survives past this call.
 A cached class or method receiver must be global; a local reference is only
 valid until the native call that produced it returns."
-  (let ((global (torcl-ffi:foreign-call (jni-slot +jni-new-global-ref+) :pointer
+  (let ((global (torcl::%ffi-call (jni-slot +jni-new-global-ref+) :pointer
                                         '(:pointer :pointer) (list *env* local))))
-    (torcl-ffi:foreign-call (jni-slot +jni-delete-local-ref+) :void
+    (torcl::%ffi-call (jni-slot +jni-delete-local-ref+) :void
                             '(:pointer :pointer) (list *env* local))
     global))
 
 (defun jni-find-class (name)
   "The class NAME (\"android/graphics/Canvas\"), as a GLOBAL reference."
   (android:with-c-string (text name)
-    (let ((class (torcl-ffi:foreign-call (jni-slot +jni-find-class+) :pointer
+    (let ((class (torcl::%ffi-call (jni-slot +jni-find-class+) :pointer
                                          '(:pointer :pointer) (list *env* text))))
       (when (torcl-ffi:null-pointer-p class) (error "No such Java class: ~A" name))
       (jni-global class))))
@@ -137,7 +157,7 @@ valid until the native call that produced it returns."
 (defun jni-method (class name signature &key static)
   (android:with-c-string (n name)
     (android:with-c-string (s signature)
-      (let ((id (torcl-ffi:foreign-call
+      (let ((id (torcl::%ffi-call
                  (jni-slot (if static +jni-get-static-method-id+ +jni-get-method-id+))
                  :pointer '(:pointer :pointer :pointer :pointer)
                  (list *env* class n s))))
@@ -148,11 +168,11 @@ valid until the native call that produced it returns."
 (defun jni-static-object-field (class name signature)
   (android:with-c-string (n name)
     (android:with-c-string (s signature)
-      (let ((id (torcl-ffi:foreign-call (jni-slot +jni-get-static-field-id+) :pointer
+      (let ((id (torcl::%ffi-call (jni-slot +jni-get-static-field-id+) :pointer
                                         '(:pointer :pointer :pointer :pointer)
                                         (list *env* class n s))))
         (when (torcl-ffi:null-pointer-p id) (error "No such static field: ~A" name))
-        (jni-global (torcl-ffi:foreign-call (jni-slot +jni-get-static-object-field+)
+        (jni-global (torcl::%ffi-call (jni-slot +jni-get-static-object-field+)
                                             :pointer '(:pointer :pointer :pointer)
                                             (list *env* class id)))))))
 
@@ -165,36 +185,36 @@ valid until the native call that produced it returns."
 
 (defun jni-args (&rest specs)
   "Marshal SPECS -- (:int n), (:float x) or (:object p) -- into the jvalue buffer."
-  (unless *args* (setf *args* (torcl-ffi:foreign-alloc (* 8 +max-args+))))
+  (unless *args* (setf *args* (ffi-alloc (* 8 +max-args+))))
   (loop for spec in specs
         for offset from 0 by 8
         do (ecase (first spec)
-             (:int (torcl-ffi:mem-set (second spec) *args* :int offset))
-             (:float (torcl-ffi:mem-set (float (second spec) 1.0) *args* :float offset))
-             (:object (torcl-ffi:mem-set (second spec) *args* :pointer offset))))
+             (:int (ffi-set (second spec) *args* :int offset))
+             (:float (ffi-set (float (second spec) 1.0) *args* :float offset))
+             (:object (ffi-set (second spec) *args* :pointer offset))))
   *args*)
 
 (defun jni-call-void (object method args)
   (incf *jni-calls*)
-  (torcl-ffi:foreign-call (jni-slot +jni-call-void-method-a+) :void
+  (torcl::%ffi-call (jni-slot +jni-call-void-method-a+) :void
                           '(:pointer :pointer :pointer :pointer)
                           (list *env* object method args)))
 
 (defun jni-call-object (object method args)
   (incf *jni-calls*)
-  (torcl-ffi:foreign-call (jni-slot +jni-call-object-method-a+) :pointer
+  (torcl::%ffi-call (jni-slot +jni-call-object-method-a+) :pointer
                           '(:pointer :pointer :pointer :pointer)
                           (list *env* object method args)))
 
 (defun jni-call-static-object (class method args)
   (incf *jni-calls*)
-  (torcl-ffi:foreign-call (jni-slot +jni-call-static-object-method-a+) :pointer
+  (torcl::%ffi-call (jni-slot +jni-call-static-object-method-a+) :pointer
                           '(:pointer :pointer :pointer :pointer)
                           (list *env* class method args)))
 
 (defun jni-new (class constructor args)
   (incf *jni-calls*)
-  (torcl-ffi:foreign-call (jni-slot +jni-new-object-a+) :pointer
+  (torcl::%ffi-call (jni-slot +jni-new-object-a+) :pointer
                           '(:pointer :pointer :pointer :pointer)
                           (list *env* class constructor args)))
 
@@ -202,26 +222,26 @@ valid until the native call that produced it returns."
   "TEXT as a jstring GLOBAL reference. Callers cache these: at ~27us each,
 rebuilding a label's string every frame costs more than drawing it."
   (let* ((bytes (%modified-utf8 text))
-         (buffer (torcl-ffi:foreign-alloc (1+ (length bytes)))))
+         (buffer (ffi-alloc (1+ (length bytes)))))
     (unwind-protect
          (progn
            (loop for byte across bytes
                  for index from 0
-                 do (torcl-ffi:mem-set byte buffer :uchar index))
-           (torcl-ffi:mem-set 0 buffer :uchar (length bytes))
-           (jni-global (torcl-ffi:foreign-call (jni-slot +jni-new-string-utf+) :pointer
+                 do (ffi-set byte buffer :uchar index))
+           (ffi-set 0 buffer :uchar (length bytes))
+           (jni-global (torcl::%ffi-call (jni-slot +jni-new-string-utf+) :pointer
                                                '(:pointer :pointer) (list *env* buffer))))
-      (torcl-ffi:foreign-free buffer))))
+      (ffi-free buffer))))
 
 (defun jni-call-boolean (object method args)
   (incf *jni-calls*)
-  (plusp (torcl-ffi:foreign-call (jni-slot +jni-call-boolean-method-a+) :int
+  (plusp (torcl::%ffi-call (jni-slot +jni-call-boolean-method-a+) :int
                                  '(:pointer :pointer :pointer :pointer)
                                  (list *env* object method args))))
 
 (defun jni-call-int (object method args)
   (incf *jni-calls*)
-  (torcl-ffi:foreign-call (jni-slot +jni-call-int-method-a+) :int
+  (torcl::%ffi-call (jni-slot +jni-call-int-method-a+) :int
                           '(:pointer :pointer :pointer :pointer)
                           (list *env* object method args)))
 
@@ -235,11 +255,11 @@ because text a person typed contains both -- an emoji is exactly the second
 case, and reading it as two lone surrogates would produce two characters that
 are not the one they typed."
   (unless (torcl-ffi:null-pointer-p string)
-    (let ((bytes (torcl-ffi:foreign-call (jni-slot +jni-get-string-utf-chars+) :pointer
+    (let ((bytes (torcl::%ffi-call (jni-slot +jni-get-string-utf-chars+) :pointer
                                          '(:pointer :pointer :pointer)
                                          (list *env* string (torcl-ffi:null-pointer)))))
       (unwind-protect (decode-modified-utf8 bytes)
-        (torcl-ffi:foreign-call (jni-slot +jni-release-string-utf-chars+) :void
+        (torcl::%ffi-call (jni-slot +jni-release-string-utf-chars+) :void
                                 '(:pointer :pointer :pointer)
                                 (list *env* string bytes))))))
 
@@ -252,7 +272,7 @@ life of the process. (It does NOT abort the way a local-reference overflow does
 -- 250,000 leaked globals survived a measurement, at about 45 bytes each -- so
 nothing tells you.)"
   (unless (torcl-ffi:null-pointer-p global)
-    (torcl-ffi:foreign-call (jni-slot +jni-delete-global-ref+) :void
+    (torcl::%ffi-call (jni-slot +jni-delete-global-ref+) :void
                             '(:pointer :pointer) (list *env* global))))
 
 (defun jni-release (local)
@@ -263,7 +283,7 @@ nothing ever pops its local reference table. A per-call result that is not
 released therefore accumulates for the life of the thread, and a per-FRAME one
 overflows the table and aborts the process."
   (unless (torcl-ffi:null-pointer-p local)
-    (torcl-ffi:foreign-call (jni-slot +jni-delete-local-ref+) :void
+    (torcl::%ffi-call (jni-slot +jni-delete-local-ref+) :void
                             '(:pointer :pointer) (list *env* local))))
 
 ;;; ── Local references ──────────────────────────────────────────────────
@@ -283,7 +303,7 @@ overflows the table and aborts the process."
 ;;; releasing one reference by hand where a frame would be heavier than the job.
 
 (defun jni-push-frame (capacity)
-  (torcl-ffi:foreign-call (jni-slot +jni-push-local-frame+) :int
+  (torcl::%ffi-call (jni-slot +jni-push-local-frame+) :int
                           '(:pointer :int) (list *env* capacity)))
 
 (defun jni-pop-frame (result)
@@ -293,7 +313,7 @@ A body that answered with a Lisp value -- a string, a boolean, a number -- has
 nothing to promote, and passing it to JNI would be a type error rather than a
 no-op, so it is handed straight back."
   (let ((reference (and result (torcl-ffi:pointerp result))))
-    (let ((promoted (torcl-ffi:foreign-call
+    (let ((promoted (torcl::%ffi-call
                      (jni-slot +jni-pop-local-frame+) :pointer
                      '(:pointer :pointer)
                      (list *env* (if reference result (torcl-ffi:null-pointer))))))
@@ -322,7 +342,7 @@ value classes are read -- Insets carries left, top, right and bottom that way
 and offers no getters at all."
   (android:with-c-string (n name)
     (android:with-c-string (sig signature)
-      (let ((id (torcl-ffi:foreign-call (jni-slot +jni-get-field-id+) :pointer
+      (let ((id (torcl::%ffi-call (jni-slot +jni-get-field-id+) :pointer
                                         '(:pointer :pointer :pointer :pointer)
                                         (list *env* class n sig))))
         (when (torcl-ffi:null-pointer-p id)
@@ -330,7 +350,7 @@ and offers no getters at all."
         id))))
 
 (defun jni-int-field (object field)
-  (torcl-ffi:foreign-call (jni-slot +jni-get-int-field+) :int
+  (torcl::%ffi-call (jni-slot +jni-get-int-field+) :int
                           '(:pointer :pointer :pointer) (list *env* object field)))
 
 (defun jni-call-static-int (class method args)
@@ -338,6 +358,6 @@ and offers no getters at all."
 receiver: that is an instance call on a Class object, which is a different
 method or none, and JNI will not say so."
   (incf *jni-calls*)
-  (torcl-ffi:foreign-call (jni-slot +jni-call-static-int-method-a+) :int
+  (torcl::%ffi-call (jni-slot +jni-call-static-int-method-a+) :int
                           '(:pointer :pointer :pointer :pointer)
                           (list *env* class method args)))
