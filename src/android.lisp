@@ -18,6 +18,10 @@
 ;;; them to onSaveInstanceState; nothing here touches a file, and nothing here
 ;;; can be asked for state at an awkward moment, because the answer is always
 ;;; already there.
+;;; The live REPL reports through logcat here, rather than into a *standard-output*
+;;; that Android discards.
+(setf *live-log* (lambda (message) (android:log message)))
+
 (setf *state-store*
       (list :read (lambda () (android:saved-state))
             :write (lambda (text) (android:save-state text))))
