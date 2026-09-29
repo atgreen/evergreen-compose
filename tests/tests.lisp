@@ -991,12 +991,55 @@ identity, so a test that wants to compare two rectangles must compare numbers."
              255 (progn (use-scheme :dark :primary "#ff0000")
                         (colour-red (theme :primary)))))))
 
+(defun test-screen-composites ()
+  (format t "screen composites~%")
+  ;; A list row: the TEXT is what grows, so the icon and the control keep their
+  ;; own sizes and the headline takes what is left.
+  (let* ((row (list-item "Wi-Fi" :supporting "Connected"
+                         :leading (icon :check :size 16)
+                         :trailing (icon :chevron-right :size 16)))
+         (kids (view-children row)))
+    (check "leading, text and trailing, in that order"
+           '(:path :column :path) (mapcar #'view-kind kids))
+    (check "the text column is the one that grows" 1 (view-prop (second kids) :grow))
+    (check "headline and supporting" 2 (length (view-children (second kids)))))
+  (check "a row with no supporting text has one line"
+         1 (length (view-children (second (view-children (list-item "Wi-Fi"
+                                                                   :leading (icon :check)))))))
+  (check "and with nothing around it, the text is the only child"
+         1 (length (view-children (list-item "Wi-Fi"))))
+  ;; An app bar sends its actions to the far end with a growing spacer.
+  (let ((bar (app-bar "Settings" :actions (list (icon :menu)))))
+    (check "title, spacer, action" '(:label :box :path)
+           (mapcar #'view-kind (view-children bar)))
+    (check "and the spacer is what pushes them apart"
+           1 (view-prop (second (view-children bar)) :grow)))
+  ;; A scaffold's middle fills whatever the bars leave.
+  (let* ((screen (scaffold :top (app-bar "T") :content (list (text "body"))
+                           :bottom (text "b") :width 100 :height 200))
+         (placed (layout screen 0 0 (constraints 0 100 0 200)))
+         (kids (mapcar #'box-frame (laid-out-children placed))))
+    (check "top, content, bottom" 3 (length kids))
+    (check "the bars keep their own heights and the content takes the rest"
+           200 (+ (fourth (first kids)) (fourth (second kids)) (fourth (third kids))))
+    (check-true "and the content is the tall one"
+                (> (fourth (second kids)) (fourth (first kids)))))
+  ;; A chip pairs its colours like everything else.
+  (let ((on (chip "Filter" :selected t)) (off (chip "Filter")))
+    (check "a selected chip is primary" (theme :primary) (view-prop on :background))
+    (check "with the colour that goes on it"
+           (theme :on-primary) (view-prop (first (view-children on)) :colour))
+    (check "an unselected one is the variant surface"
+           (theme :surface-variant) (view-prop off :background))
+    (check "with its on-colour too"
+           (theme :on-surface-variant) (view-prop (first (view-children off)) :colour))))
+
 (defun run-tests ()
   (setf *failures* 0 *checks* 0)
   (test-geometry) (test-paint) (test-font)
   (test-layout) (test-render) (test-raster)
   (test-input) (test-widgets) (test-constraints) (test-backend) (test-extension)
-  (test-utf8) (test-stacking) (test-text-field) (test-elevation) (test-stretch) (test-paths) (test-horizontal-list) (test-memo-across-frames) (test-damage) (test-damaged-drawing) (test-design-system)
+  (test-utf8) (test-stacking) (test-text-field) (test-elevation) (test-stretch) (test-paths) (test-horizontal-list) (test-memo-across-frames) (test-damage) (test-damaged-drawing) (test-design-system) (test-screen-composites)
   (test-composites) (test-corners-and-clipping) (test-scroll) (test-clock) (test-virtual-list) (test-image)
   (format t "~%~D checks, ~D failures~%" *checks* *failures*)
   *failures*)

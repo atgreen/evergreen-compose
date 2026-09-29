@@ -421,3 +421,68 @@ larger, wound against it, and the overlap cancels."
          ,@(when id (list :id id))
          ,@(when on-press (list :on-press on-press)))
      ,(icon name :size size :colour colour)))
+
+;;; ── Screen structure ──────────────────────────────────────────────────
+;;;
+;;; Each of these is a function returning primitives, which is the whole claim
+;;; the framework makes about widgets. They are here rather than in an
+;;; application because the ARRANGEMENT is conventional -- a list row puts its
+;;; text in the middle and lets it grow, an app bar pushes its actions to the
+;;; end -- and getting that convention wrong is what makes a screen look homemade.
+
+(defun list-item (headline &key supporting leading trailing id on-press)
+  "A row of a list: LEADING, text that grows, TRAILING.
+
+The text column is the thing that grows, so the leading icon and the trailing
+control keep their own sizes and the headline takes whatever is left. That is
+the arrangement every list row in every toolkit makes, and it is one :GROW."
+  `(row (:padding ,(space :large) :gap ,(space :medium)
+         :cross-align :center :stretch t
+         ,@(when id (list :id id))
+         ,@(when on-press (list :on-press on-press)))
+     ,@(when leading (list leading))
+     (column (:gap ,(space :tight) :grow 1)
+       ,(text headline :size :body)
+       ,@(when supporting
+           (list (text supporting :size :caption :colour (theme :on-surface-variant)))))
+     ,@(when trailing (list trailing))))
+
+(defun app-bar (title &key leading actions)
+  "A title bar: LEADING at the front, ACTIONS at the end, title next to the front.
+
+The gap between the title and the actions is a SPACER that grows, which is how a
+row says 'everything after this goes to the far end' without a second layout
+concept."
+  `(row (:padding ,(space :medium) :gap ,(space :medium)
+         :cross-align :center :stretch t
+         :background ,(theme :surface-variant))
+     ,@(when leading (list leading))
+     ,(text title :size :title)
+     ,(spacer :grow 1)
+     ,@actions))
+
+(defun scaffold (&key top content bottom width height)
+  "A screen: TOP, CONTENT filling what is left, BOTTOM.
+
+CONTENT grows, so the bars sit against the edges however tall they are and
+nothing has to be told the screen's height twice."
+  `(column (:background ,(theme :surface) :cross-align :stretch
+            ,@(when width (list :width width))
+            ,@(when height (list :height height)))
+     ,@(when top (list top))
+     (column (:grow 1) ,@(if (and content (listp (first content))) content (list content)))
+     ,@(when bottom (list bottom))))
+
+(defun chip (label &key id on-press selected icon)
+  "A small, rounded, tappable label. Filled rather than outlined, because an
+outline is a border and a view cannot have one yet (bliss-jfq)."
+  `(row (:padding ,(space :small) :gap ,(space :tight) :radius 999
+         :cross-align :center
+         :background ,(if selected (theme :primary) (theme :surface-variant))
+         ,@(when id (list :id id))
+         ,@(when on-press (list :on-press on-press)))
+     ,@(when icon
+         (list (icon icon :size 16
+                     :colour (if selected (theme :on-primary) (theme :on-surface-variant)))))
+     ,(text label :size :label
+            :colour (if selected (theme :on-primary) (theme :on-surface-variant)))))

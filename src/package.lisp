@@ -33,7 +33,8 @@
    ;; widgets
    :*theme* :theme :theme-value :button :toggle :spacer :text
    :vstack :hstack :progress :switch :labelled :scroll :virtual-list :visible-range :image
-   :text-field :card :divider
+   :text-field :card :divider :list-item :app-bar :scaffold :chip
+   :*schemes* :*type-scale* :*spacing* :use-scheme :type-size :space
    :icon :icon-button :icon-names :*icons* :thick-line :circle-path
    ;; which field the keyboard is bound to
    :*text-input* :focus-text-field :blur-text-field :pump-text-input :text-focus-id
