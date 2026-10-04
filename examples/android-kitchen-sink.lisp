@@ -383,11 +383,12 @@ frame: EQUAL on a seven-element list is cheap, PRIN1 is not."
         (android:log (format nil "present by op: ~{~A ~Dx ~Dms~^, ~}"
                              (loop for (kind entry) on bliss:*draw-profile* by #'cddr
                                    append (list kind (car entry) (cdr entry))))))
-      (android:log (format nil "10 frames: touches ~D build ~D layout ~D render ~D compare ~D present ~D blit ~D (ms), ~D measures ~D misses, ~D/~D nodes reusable, ~D% by node, ~D% by op, ~D ops, ~D jni, ~D touches"
+      (android:log (format nil "10 frames: touches ~D build ~D layout ~D render ~D compare ~D present ~D blit ~D (ms), ~D measures ~D misses, ~D placed ~D afresh, ~D/~D nodes reusable, ~D% by node, ~D% by op, ~D ops, ~D jni, ~D touches"
                            (getf *phases* :touches) (getf *phases* :build) (getf *phases* :layout)
                            (getf *phases* :render) (getf *phases* :compare)
                            (getf *phases* :present) (getf *phases* :blit)
                            bliss:*measure-calls* bliss:*measure-misses*
+                           bliss:*place-calls* bliss:*place-misses*
                            *matched* *nodes*
                            (round (* 100 *damage*)
                                   (* 10 (bliss:host-width host) (bliss:host-height host)))
@@ -396,6 +397,7 @@ frame: EQUAL on a seven-element list is cheap, PRIN1 is not."
                            *ops* bliss:*jni-calls* bliss:*touch-events*))
       (setf *matched* 0 *nodes* 0 *damage* 0 *op-damage* 0 *ops* 0 bliss:*jni-calls* 0 bliss:*touch-events* 0
             bliss:*measure-calls* 0 bliss:*measure-misses* 0
+            bliss:*place-calls* 0 bliss:*place-misses* 0
             *frames* 0 *passes* 0 *wall* (get-internal-real-time)
             bliss:*draw-profile* (list :on (cons 0 0))
             *phases* (list :touches 0 :insets 0 :ime 0 :repl 0 :build 0 :layout 0 :render 0 :compare 0 :present 0 :blit 0)))))

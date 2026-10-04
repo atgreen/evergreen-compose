@@ -343,6 +343,24 @@ placement pass a cache hit at every level and the whole walk linear."
 (defvar *measured-previous* nil "The generation before *MEASURED*. See LAYOUT.")
 (defvar *stacked-previous* nil)
 
+(defvar *placed* nil
+  "Per-pass memo of PLACEMENTS: an EQ table from a view node to an alist of
+(MIN-W MAX-W MIN-H MAX-H X Y LAID-OUT), keyed like *MEASURED* and living in the
+same two generations.
+
+The measure memo makes a reused subtree's SIZES free, and then %LAYOUT walked
+every one of its nodes anyway to place them -- 54 ms of a frame on a Pixel 10
+Pro XL, for a tree that was mostly the same lists as last frame. A placement is
+a function of the node, the constraints and the origin, and a laid-out node is
+never mutated by anything, so last frame's subtree can be handed back whole.
+Handed back MOVED, when only the origin differs: a scroll changes every
+descendant's origin by the same amount, and translating a stored subtree is a
+rect and a node per child rather than a measure, a padding and a stack-metrics
+each.")
+(defvar *placed-previous* nil)
+(defvar *place-calls* 0 "Diagnostic: %LAYOUT calls since it was last zeroed.")
+(defvar *place-misses* 0 "Diagnostic: of those, the ones that had to be computed.")
+
 (defun layout (view x y &optional (constraints (unbounded)))
   "Place VIEW at (X, Y) under CONSTRAINTS; return a tree of absolute frames.
 
@@ -369,17 +387,66 @@ therefore stays for ever and a node built once is gone within two frames."
       ;; that made this whole change do nothing, with the measure count
       ;; unmoved at 121 a frame.
       (let ((*measured* (make-hash-table :test #'eq))
-            (*stacked* (make-hash-table :test #'eq)))
+            (*stacked* (make-hash-table :test #'eq))
+            (*placed* (make-hash-table :test #'eq)))
         (multiple-value-prog1 (%layout view x y constraints)
           (setf *measured-previous* *measured*
-                *stacked-previous* *stacked*)))))
+                *stacked-previous* *stacked*
+                *placed-previous* *placed*)))))
 
 (defun forget-layout ()
   "Drop both memo generations. For anything that invalidates every size at once
 -- a new backend, and therefore a new font, is the case that exists."
-  (setf *measured-previous* nil *stacked-previous* nil))
+  (setf *measured-previous* nil *stacked-previous* nil *placed-previous* nil))
+
+(defun translate-laid-out (node dx dy)
+  "NODE and everything under it, moved by DX and DY. The views are shared; the
+frames are new."
+  (let ((f (laid-out-frame node)))
+    (laid-out (laid-out-view node)
+              (rect (+ (rect-x f) dx) (+ (rect-y f) dy) (rect-width f) (rect-height f))
+              (mapcar (lambda (child) (translate-laid-out child dx dy))
+                      (laid-out-children node))
+              (laid-out-content node))))
 
 (defun %layout (view x y constraints)
+  "Place VIEW, from the memo when it was placed under these constraints before.
+See *PLACED*."
+  (incf *place-calls*)
+  (if (null *placed*)
+      (%layout-afresh view x y constraints)
+      (let* ((min-width (constraints-min-width constraints))
+             (max-width (constraints-max-width constraints))
+             (min-height (constraints-min-height constraints))
+             (max-height (constraints-max-height constraints))
+             (entries (or (gethash view *placed*)
+                          (let ((old (and *placed-previous*
+                                          (gethash view *placed-previous*))))
+                            (when old (setf (gethash view *placed*) old)))))
+             (hit (loop for entry in entries
+                        when (and (eql (first entry) min-width)
+                                  (eql (second entry) max-width)
+                                  (eql (third entry) min-height)
+                                  (eql (fourth entry) max-height))
+                          return entry)))
+        (cond ((null hit)
+               (incf *place-misses*)
+               (let ((placed (%layout-afresh view x y constraints)))
+                 (setf (gethash view *placed*)
+                       (cons (list min-width max-width min-height max-height x y placed)
+                             entries))
+                 placed))
+              ((and (eql (fifth hit) x) (eql (sixth hit) y))
+               (seventh hit))
+              (t
+               ;; Moved. Translate what was stored, and store THAT, so a frame
+               ;; that leaves it there next time is an exact hit.
+               (let ((moved (translate-laid-out (seventh hit)
+                                                (- x (fifth hit)) (- y (sixth hit)))))
+                 (setf (fifth hit) x (sixth hit) y (seventh hit) moved)
+                 moved))))))
+
+(defun %layout-afresh (view x y constraints)
   (multiple-value-bind (width height) (measure view constraints)
     (multiple-value-bind (top right bottom left) (padding-of view)
       (let ((frame (rect x y width height))

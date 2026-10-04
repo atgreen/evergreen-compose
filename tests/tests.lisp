@@ -947,6 +947,41 @@ identity, so a test that wants to compare two rectangles must compare numbers."
     (check "an operation with no bounds is kept" '(:unknown-op 1 2 3) (car (last culled)))
     (check "five of ten survive" 5 (length culled))))
 
+(defun test-placement-across-frames ()
+  (format t "placement across frames~%")
+  (labels ((frames (node)
+             (let ((f (laid-out-frame node)))
+               (list* (rect-x f) (rect-y f) (rect-width f) (rect-height f)
+                      (mapcar #'frames (laid-out-children node))))))
+    (let* ((kept `(column (:gap 2 :padding 3)
+                    ,@(loop for i from 0 below 6 collect `(label (:text "x" :size 2)))))
+           (page (lambda (offset) `(column (:offset-y ,offset :clip t :width 100 :height 50)
+                                      ,kept))))
+      (forget-layout)
+      (let ((first (layout (funcall page 0) 0 0 (constraints 0 100 0 50))))
+        ;; The page is rebuilt every frame; KEPT is the same list.
+        (setf *place-misses* 0)
+        (let ((second (layout (funcall page 0) 0 0 (constraints 0 100 0 50))))
+          (check "a page that did not move places only itself afresh" 1 *place-misses*)
+          (check-true "and hands back last frame's subtree, the very same node"
+                      (eq (first (laid-out-children first))
+                          (first (laid-out-children second)))))
+        ;; Scrolled: every frame under KEPT moves by -20, and nothing is
+        ;; re-laid-out to find that out.
+        (setf *place-misses* 0)
+        (let* ((scrolled (layout (funcall page 20) 0 0 (constraints 0 100 0 50)))
+               (misses *place-misses*)
+               (fresh (layout (copy-tree (funcall page 20)) 0 0 (constraints 0 100 0 50))))
+          (check "a scrolled page places only itself afresh" 1 misses)
+          (check "and the moved subtree is where a fresh layout puts it"
+                 (frames fresh) (frames scrolled))
+          (check "its views are still the application's lists"
+                 kept (laid-out-view (first (laid-out-children scrolled)))))
+        ;; Different constraints are a different placement, memo or no memo.
+        (setf *place-misses* 0)
+        (layout kept 0 0 (constraints 0 40 0 50))
+        (check-true "narrower constraints are placed afresh" (plusp *place-misses*))))))
+
 (defun test-damaged-drawing ()
   (format t "damaged drawing~%")
   (let* ((backend (make-software-backend 20 20))
@@ -1715,7 +1750,7 @@ two" 1 nil)))
   (test-layout) (test-render) (test-raster)
   (test-input) (test-widgets) (test-constraints) (test-backend) (test-extension)
   (test-utf8) (test-stacking) (test-text-field) (test-elevation) (test-stretch) (test-paths) (test-horizontal-list) (test-memo-across-frames) (test-damage) (test-damaged-drawing) (test-design-system) (test-screen-composites) (test-svg) (test-borders) (test-fling) (test-semantics) (test-overlays) (test-nested-scroll) (test-bring-into-view) (test-saved-state) (test-platform-view) (test-rounded-clipping) (test-paragraph) (test-taps)
-  (test-target-files-read) (test-culling)
+  (test-target-files-read) (test-culling) (test-placement-across-frames)
   (test-composites) (test-corners-and-clipping) (test-scroll) (test-clock) (test-virtual-list) (test-image)
   (format t "~%~D checks, ~D failures~%" *checks* *failures*)
   *failures*)
