@@ -3,6 +3,11 @@
 Build Android apps in [Evergreen Common Lisp](https://github.com/atgreen/evergreen),
 using Jetpack Compose and Material 3.
 
+![Evergreen Compose demos: News showing Planet Lisp articles, Snack showing a photo-rich storefront, and Lagged showing sleep stages and a heart-rate chart.](docs/images/demo-showcase.png)
+
+[News](examples/evergreen-news) · [Snack](examples/evergreen-snack) ·
+[Lagged](examples/evergreen-lagged) — three apps written in Common Lisp.
+
 Version **0.0.1** is the first experimental baseline. See the
 [changelog](CHANGELOG.md) for capabilities and known limits.
 
