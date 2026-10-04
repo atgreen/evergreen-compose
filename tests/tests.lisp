@@ -982,6 +982,32 @@ identity, so a test that wants to compare two rectangles must compare numbers."
         (layout kept 0 0 (constraints 0 40 0 50))
         (check-true "narrower constraints are placed afresh" (plusp *place-misses*))))))
 
+(defun test-render-across-frames ()
+  (format t "render across frames~%")
+  (let* ((kept `(column (:gap 2 :padding 3 :clip t :radius 4)
+                  ,@(loop for i from 0 below 4 collect `(label (:text "x" :size 2)))))
+         (page (lambda () `(column (:width 100 :height 50) ,kept))))
+    (forget-layout)
+    (let* ((first (layout (funcall page) 0 0 (constraints 0 100 0 50)))
+           (display (render first)))
+      (setf *render-misses* 0)
+      (let* ((second (layout (funcall page) 0 0 (constraints 0 100 0 50)))
+             (again (render second)))
+        (check "the same display list comes back" display again)
+        (check "and only the rebuilt page was rendered" 1 *render-misses*)
+        (check-true "the reused subtree's operations are last frame's, not copies"
+                    (eq (second display) (second again)))))
+    ;; A moved subtree is a new laid-out node, so it renders afresh -- and
+    ;; where it moved to.
+    (forget-layout)
+    (render (layout `(column (:offset-y 0 :width 100 :height 50) ,kept) 0 0
+                    (constraints 0 100 0 50)))
+    (setf *render-misses* 0)
+    (let ((moved (render (layout `(column (:offset-y 10 :width 100 :height 50) ,kept) 0 0
+                                 (constraints 0 100 0 50)))))
+      (check-true "a scrolled subtree is rendered again" (> *render-misses* 1))
+      (check "and its clip is where it scrolled to" -10 (third (first moved))))))
+
 (defun test-damaged-drawing ()
   (format t "damaged drawing~%")
   (let* ((backend (make-software-backend 20 20))
@@ -1750,7 +1776,7 @@ two" 1 nil)))
   (test-layout) (test-render) (test-raster)
   (test-input) (test-widgets) (test-constraints) (test-backend) (test-extension)
   (test-utf8) (test-stacking) (test-text-field) (test-elevation) (test-stretch) (test-paths) (test-horizontal-list) (test-memo-across-frames) (test-damage) (test-damaged-drawing) (test-design-system) (test-screen-composites) (test-svg) (test-borders) (test-fling) (test-semantics) (test-overlays) (test-nested-scroll) (test-bring-into-view) (test-saved-state) (test-platform-view) (test-rounded-clipping) (test-paragraph) (test-taps)
-  (test-target-files-read) (test-culling) (test-placement-across-frames)
+  (test-target-files-read) (test-culling) (test-placement-across-frames) (test-render-across-frames)
   (test-composites) (test-corners-and-clipping) (test-scroll) (test-clock) (test-virtual-list) (test-image)
   (format t "~%~D checks, ~D failures~%" *checks* *failures*)
   *failures*)

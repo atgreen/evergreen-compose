@@ -11,7 +11,7 @@
    :view-kind :view-props :view-children :view-prop
    ;; layout
    :measure :layout :laid-out :laid-out-view :laid-out-frame :laid-out-children
-   :constraints :unbounded :tight :*measure-calls* :*measure-misses* :*place-calls* :*place-misses* :forget-layout
+   :constraints :unbounded :tight :*measure-calls* :*measure-misses* :*place-calls* :*place-misses* :*render-misses* :forget-layout
    ;; display list
    :render :flatten-to-rects :colour :measure-kind :render-kind :round-rect-spans
    :parse-svg-path :svg-path-strings

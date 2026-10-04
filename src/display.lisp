@@ -312,31 +312,55 @@ which is what makes a frame comparable between renders.")
 (defmethod render-kind ((kind (eql :row)) view frame) (%box-ops view frame))
 (defmethod render-kind ((kind (eql :column)) view frame) (%box-ops view frame))
 
+(defvar *rendered* nil
+  "Per-frame memo of rendered CHUNKS: an EQ table from a laid-out node to
+(OWN-OPS CLIP-OP CHILD-CHUNKS), in two generations like *MEASURED*.
+
+With placement memoised, most of the laid-out tree IS last frame's nodes, and a
+node's operations are a function of the node alone -- the view it holds and the
+frame it was given -- so they need not be computed again. A chunk is the node's
+own operations and its children's chunks, not a flat list, so a hit costs
+nothing to hand back and a miss higher up does not copy what is below it; the
+display list is flattened once, at the end, which is the one walk a frame cannot
+avoid.")
+(defvar *rendered-previous* nil)
+(defvar *render-misses* 0 "Diagnostic: nodes whose operations were computed this frame.")
+
 (defun render (laid-out-tree)
   "The display list for a laid-out tree, as a list of operations."
-  (let ((ops '()))
-    (labels ((emit (op) (push op ops))
-             (walk (node)
-               (let* ((view (laid-out-view node))
-                      (frame (laid-out-frame node))
-                      (kind (view-kind view)))
-                 (mapc #'emit (render-kind kind view frame))
-                 ;; A container with :CLIP confines its children to its own
-                 ;; frame. Emitted around the children rather than by the node
-                 ;; itself, because that is the extent being clipped TO.
-                 (when (view-prop view :clip)
-                   ;; The RADIUS travels with the clip, so a rounded container
-                   ;; clips its children to the shape it actually draws. Without
-                   ;; it a card with :RADIUS painted rounded corners and let an
-                   ;; image inside it keep square ones (bliss-cvj).
-                   (emit (list :clip-push (rect-x frame) (rect-y frame)
-                               (rect-width frame) (rect-height frame)
-                               (view-prop view :radius 0))))
+  (let ((*rendered* (make-hash-table :test #'eq))
+        (ops '()))
+    (labels ((chunk (node)
+               (or (gethash node *rendered*)
+                   (let ((old (and *rendered-previous* (gethash node *rendered-previous*))))
+                     (when old (setf (gethash node *rendered*) old)))
+                   (setf (gethash node *rendered*)
+                         (let* ((view (laid-out-view node))
+                                (frame (laid-out-frame node)))
+                           (incf *render-misses*)
+                           (list (render-kind (view-kind view) view frame)
+                                 ;; A container with :CLIP confines its children
+                                 ;; to its own frame. Emitted around the children
+                                 ;; rather than by the node itself, because that
+                                 ;; is the extent being clipped TO. The RADIUS
+                                 ;; travels with the clip, so a rounded container
+                                 ;; clips its children to the shape it actually
+                                 ;; draws (bliss-cvj).
+                                 (when (view-prop view :clip)
+                                   (list :clip-push (rect-x frame) (rect-y frame)
+                                         (rect-width frame) (rect-height frame)
+                                         (view-prop view :radius 0)))
+                                 (mapcar #'chunk (laid-out-children node)))))))
+             (flatten (chunk)
+               (destructuring-bind (own clip children) chunk
                  ;; Children after the parent's own background, so a container
                  ;; paints beneath what it contains.
-                 (mapc #'walk (laid-out-children node))
-                 (when (view-prop view :clip) (emit (list :clip-pop))))))
-      (walk laid-out-tree))
+                 (dolist (op own) (push op ops))
+                 (when clip (push clip ops))
+                 (dolist (child children) (flatten child))
+                 (when clip (push '(:clip-pop) ops)))))
+      (flatten (chunk laid-out-tree)))
+    (setf *rendered-previous* *rendered*)
     (nreverse ops)))
 
 (defun flatten-to-rects (display-list)

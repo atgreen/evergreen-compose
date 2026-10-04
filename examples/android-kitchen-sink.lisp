@@ -324,7 +324,7 @@ frame: EQUAL on a seven-element list is cheap, PRIN1 is not."
 
 ;;;; Where the frame goes, measured rather than guessed.
 
-(defparameter *phases* (list :touches 0 :insets 0 :ime 0 :repl 0 :build 0 :layout 0 :render 0 :compare 0 :present 0 :blit 0))
+(defparameter *phases* (list :touches 0 :insets 0 :ime 0 :repl 0 :build 0 :layout 0 :render 0 :overlap 0 :compare 0 :damage 0 :present 0 :blit 0 :views 0 :state 0))
 (defparameter *frames* 0)
 (defparameter *previous-placement* nil)
 (defparameter *matched* 0)
@@ -333,6 +333,9 @@ frame: EQUAL on a seven-element list is cheap, PRIN1 is not."
 (defparameter *op-damage* 0)
 (defparameter *ops* 0)
 (defparameter *passes* 0 "Loop iterations since the last report, dirty or not.")
+(defparameter *profile* nil
+  "Also measure the measuring: the per-op PRESENT profile and the node-overlap
+statistic. Off, because together they cost 12 ms of a frame.")
 (defparameter *wall* 0)
 
 (defmacro timing (phase &body body)
@@ -350,20 +353,26 @@ frame: EQUAL on a seven-element list is cheap, PRIN1 is not."
          (display (timing :render (bliss:render placed))))
     (incf *ops* (length display))
     (setf (bliss:host-placed host) placed)
-    (multiple-value-bind (matched total damage)
-        (bliss:placement-overlap placed *previous-placement*
-                                  (bliss:rect 0 0 (bliss:host-width host) (bliss:host-height host)))
-      (incf *matched* matched) (incf *nodes* total)
-      (incf *damage* (if damage (* (bliss:rect-width damage) (bliss:rect-height damage)) 0)))
-
-    (setf *previous-placement* (bliss:record-placement placed))
+    ;; PLACEMENT-OVERLAP answered its question -- whether caching placements
+    ;; was worth building -- and then cost 9 ms a frame to keep answering it.
+    ;; *PROFILE* turns it back on, with the per-op PRESENT profile, whose two
+    ;; clock reads per operation are another 3 ms.
+    (when *profile*
+      (timing :overlap
+        (multiple-value-bind (matched total damage)
+            (bliss:placement-overlap placed *previous-placement*
+                                      (bliss:rect 0 0 (bliss:host-width host) (bliss:host-height host)))
+          (incf *matched* matched) (incf *nodes* total)
+          (incf *damage* (if damage (* (bliss:rect-width damage) (bliss:rect-height damage)) 0)))
+        (setf *previous-placement* (bliss:record-placement placed))))
     (let* ((last (bliss::host-last-display host))
            (same (timing :compare (equal display last))))
       (unless same
-        (let ((damage (when last
-                        (bliss:display-damage display last
-                                              (bliss:rect 0 0 (bliss:host-width host)
-                                                          (bliss:host-height host))))))
+        (let ((damage (timing :damage
+                         (when last
+                           (bliss:display-damage display last
+                                                 (bliss:rect 0 0 (bliss:host-width host)
+                                                             (bliss:host-height host)))))))
           (incf *op-damage* (if damage
                                 (* (bliss:rect-width damage) (bliss:rect-height damage))
                                 (* (bliss:host-width host) (bliss:host-height host))))
@@ -383,12 +392,15 @@ frame: EQUAL on a seven-element list is cheap, PRIN1 is not."
         (android:log (format nil "present by op: ~{~A ~Dx ~Dms~^, ~}"
                              (loop for (kind entry) on bliss:*draw-profile* by #'cddr
                                    append (list kind (car entry) (cdr entry))))))
-      (android:log (format nil "10 frames: touches ~D build ~D layout ~D render ~D compare ~D present ~D blit ~D (ms), ~D measures ~D misses, ~D placed ~D afresh, ~D/~D nodes reusable, ~D% by node, ~D% by op, ~D ops, ~D jni, ~D touches"
+      (android:log (format nil "10 frames: touches ~D build ~D layout ~D render ~D overlap ~D compare ~D damage ~D present ~D blit ~D views ~D state ~D (ms), ~D measures ~D misses, ~D placed ~D afresh, ~D rendered afresh, ~D/~D nodes reusable, ~D% by node, ~D% by op, ~D ops, ~D jni, ~D touches"
                            (getf *phases* :touches) (getf *phases* :build) (getf *phases* :layout)
-                           (getf *phases* :render) (getf *phases* :compare)
+                           (getf *phases* :render) (getf *phases* :overlap)
+                           (getf *phases* :compare) (getf *phases* :damage)
                            (getf *phases* :present) (getf *phases* :blit)
+                           (getf *phases* :views) (getf *phases* :state)
                            bliss:*measure-calls* bliss:*measure-misses*
                            bliss:*place-calls* bliss:*place-misses*
+                           bliss:*render-misses*
                            *matched* *nodes*
                            (round (* 100 *damage*)
                                   (* 10 (bliss:host-width host) (bliss:host-height host)))
@@ -397,10 +409,10 @@ frame: EQUAL on a seven-element list is cheap, PRIN1 is not."
                            *ops* bliss:*jni-calls* bliss:*touch-events*))
       (setf *matched* 0 *nodes* 0 *damage* 0 *op-damage* 0 *ops* 0 bliss:*jni-calls* 0 bliss:*touch-events* 0
             bliss:*measure-calls* 0 bliss:*measure-misses* 0
-            bliss:*place-calls* 0 bliss:*place-misses* 0
+            bliss:*place-calls* 0 bliss:*place-misses* 0 bliss:*render-misses* 0
             *frames* 0 *passes* 0 *wall* (get-internal-real-time)
-            bliss:*draw-profile* (list :on (cons 0 0))
-            *phases* (list :touches 0 :insets 0 :ime 0 :repl 0 :build 0 :layout 0 :render 0 :compare 0 :present 0 :blit 0)))))
+            bliss:*draw-profile* (and *profile* (list :on (cons 0 0)))
+            *phases* (list :touches 0 :insets 0 :ime 0 :repl 0 :build 0 :layout 0 :render 0 :overlap 0 :compare 0 :damage 0 :present 0 :blit 0 :views 0 :state 0)))))
 
 (defun a11y-check (host)
   "Prove the plumbing without turning a screen reader on.
@@ -459,7 +471,7 @@ how the whole phone responds to touch."
     (android:log (format nil "restored ~S" (restore-app-state)))
     (setf *wall* (get-internal-real-time)
           ;; Non-empty, because an empty plist is NIL and would read as "off".
-          bliss:*draw-profile* (list :on (cons 0 0)))
+          bliss:*draw-profile* (and *profile* (list :on (cons 0 0))))
     (loop while (android:running-p)
           do (incf *passes*)
              ;; A request may have redefined anything -- a colour, a widget, the
@@ -495,7 +507,7 @@ how the whole phone responds to touch."
                  (draw-timed host #'ui))
                ;; After the draw, because the rectangle comes from the frame
                ;; that was just laid out.
-               (bliss:sync-platform-views host)
+               (timing :views (bliss:sync-platform-views host))
                ;; AFTER the draw, not before it. HOST-PLACED is last frame's
                ;; layout, and when the keyboard has just opened last frame is
                ;; still the full-height screen -- on which the field is already
@@ -514,5 +526,5 @@ how the whole phone responds to touch."
                        (setf *page* (bliss:scroll-by scroller *page* delta))
                        (android:log (format nil "revealed ~A by ~D" id delta))
                        (bliss:invalidate)))))
-               (keep-app-state))
+               (timing :state (keep-app-state)))
              (sleep 0.008))))
