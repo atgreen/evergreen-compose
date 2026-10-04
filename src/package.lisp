@@ -1,4 +1,4 @@
-;;;; Bliss — a UI framework for TorCL, written as Lisp data.
+;;;; Bliss — a UI framework for EGCL, written as Lisp data.
 (defpackage :bliss
   (:use :cl)
   (:export

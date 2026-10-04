@@ -34,12 +34,12 @@ points this at logcat when it loads.")
 (defun live-log (message) (funcall *live-log* message))
 
 (defparameter +slynk-files+
-  '("slynk-match" "slynk-backend" "backend-torcl" "torcl-prelude"
-    "slynk-rpc" "slynk" "slynk-completion" "slynk-apropos" "torcl-slynk-patch")
+  '("slynk-match" "slynk-backend" "backend-egcl" "egcl-prelude"
+    "slynk-rpc" "slynk" "slynk-completion" "slynk-apropos" "egcl-slynk-patch")
   "Load order, and it matters. The backend is defined against SLYNK-BACKEND's
 DEFINTERFACE machinery so it follows that; the patch overrides slynk's own
 SERVE-REQUESTS so it must come last. Names are the FLATTENED ones -- APK assets
-are a single directory, so backend/torcl.lisp ships as backend-torcl.lisp.")
+are a single directory, so backend/egcl.lisp ships as backend-egcl.lisp.")
 
 (defun %define-repl-history ()
   "Define the CL REPL history variables.
@@ -64,8 +64,8 @@ this is called deliberately and never by default."
       (load (concatenate 'string prefix name ".lisp"))))
   (%define-repl-history)
   (funcall (find-symbol "INIT" "SLYNK"))
-  (setf *slynk-listener* (torcl::%socket-listen "127.0.0.1" port 5)
-        *slynk-port* (torcl::%socket-local-port *slynk-listener*))
+  (setf *slynk-listener* (egcl::%socket-listen "127.0.0.1" port 5)
+        *slynk-port* (egcl::%socket-local-port *slynk-listener*))
   *slynk-port*)
 
 (defun stop-live-repl ()
@@ -74,7 +74,7 @@ this is called deliberately and never by default."
                             *slynk-connection* nil nil))
     (setf *slynk-connection* nil))
   (when *slynk-listener*
-    (torcl::%socket-close *slynk-listener*)
+    (egcl::%socket-close *slynk-listener*)
     (setf *slynk-listener* nil *slynk-port* nil))
   nil)
 
@@ -94,8 +94,8 @@ that builds the view may be a different function now."
       ;; Accept only when somebody is actually waiting: %SOCKET-ACCEPT blocks,
       ;; and blocking here would freeze the interface until a client connected.
       (unless *slynk-connection*
-        (when (torcl::%socket-listener-ready-p *slynk-listener* 0)
-          (let ((client (torcl::%socket-accept *slynk-listener*)))
+        (when (egcl::%socket-listener-ready-p *slynk-listener* 0)
+          (let ((client (egcl::%socket-accept *slynk-listener*)))
             (setf *slynk-connection*
                   (funcall (find-symbol "MAKE-CONNECTION" "SLYNK")
                            *slynk-listener* client nil))
@@ -107,7 +107,7 @@ that builds the view may be a different function now."
         ;; not wait" -- but it cannot say whether anything actually arrived, and
         ;; the caller needs that to know whether to redraw.
         (handler-case
-            (when (torcl::%socket-wait-for-input (slynk-socket-stream) 0)
+            (when (egcl::%socket-wait-for-input (slynk-socket-stream) 0)
               (funcall (find-symbol "HANDLE-REQUESTS" "SLYNK") *slynk-connection* t)
               (setf served t))
           (error (e)

@@ -26,10 +26,10 @@
      (label (:text ,(format nil "X ~D Y ~D" *last-x* *last-y*) :size 1 :colour "#a0a0a0"))))
 
 (defun android-main (window)
-  (torcl-egl:with-window (window)
-    (bliss:gles-init torcl-egl::*gles*)
+  (egcl-egl:with-window (window)
+    (bliss:gles-init egcl-egl::*gles*)
     (multiple-value-bind (width height)
-        (bliss:gles-surface-size torcl-egl::*egl* torcl-egl::*display* torcl-egl::*surface*)
+        (bliss:gles-surface-size egcl-egl::*egl* egcl-egl::*display* egcl-egl::*surface*)
       ;; The UI is authored in logical pixels and scaled by a whole number, so a
       ;; 5x7 glyph stays a crisp block on a 1080-wide phone instead of being
       ;; resampled into mush. 120 logical columns is the design width. Logical
@@ -53,10 +53,10 @@
         ;; with the context already current -- separating "the FFI is slow" from
         ;; "the GPU is slow", which the issue/swap split has already narrowed to
         ;; the issuing side.
-        (let ((probe (torcl-ffi:foreign-symbol-pointer "glGetError" torcl-egl::*gles*))
+        (let ((probe (egcl-ffi:foreign-symbol-pointer "glGetError" egcl-egl::*gles*))
               (n 5000))
           (let ((start (get-internal-real-time)))
-            (dotimes (i n) (torcl-ffi:foreign-call probe :int (quote ()) (quote ())))
+            (dotimes (i n) (egcl-ffi:foreign-call probe :int (quote ()) (quote ())))
             (let ((ms (round (* 1000 (- (get-internal-real-time) start))
                              internal-time-units-per-second)))
               (android:log (format nil "ffi probe: ~D glGetError in ~Dms = ~,1F us/call"
@@ -101,7 +101,7 @@
                                     (ignore1 (setf last-display display))
                                     (ignore2 (bliss:gles-draw display width height scale))
                                     (t1 (get-internal-real-time))
-                                    (ignore3 (torcl-egl:swap))
+                                    (ignore3 (egcl-egl:swap))
                                     (t2 (get-internal-real-time)))
                                (declare (ignore ignore1 ignore2 ignore3))
                                (incf *frames*)

@@ -7,7 +7,7 @@
 ;;;; path filling without shipping a renderer or a font.
 ;;;;
 ;;;; Why this shape, given the measurements: a JNI call costs ~35us here and
-;;;; almost all of that is TorCL's FFI rather than Java. So the winning move is
+;;;; almost all of that is EGCL's FFI rather than Java. So the winning move is
 ;;;; to make each call do as much as possible. One drawText call renders a whole
 ;;;; string; the software backend spends ~180 rectangles on the same label. The
 ;;;; corollary is that everything resolvable once -- classes, method IDs, the
@@ -71,7 +71,7 @@ int Java expects rather than a positive bignum."
                                       (jni-args (list :object bitmap)))))
          (paint-init (jni-method paint-class "<init>" "()V"))
          (paint (jni-global (jni-new paint-class paint-init (jni-args))))
-         (graphics (torcl-ffi:load-foreign-library "libjnigraphics.so")))
+         (graphics (egcl-ffi:load-foreign-library "libjnigraphics.so")))
     (jni-check)
     (let ((canvas (make-canvas
                    :bitmap bitmap :object canvas :paint paint :width width :height height
@@ -111,11 +111,11 @@ int Java expects rather than a positive bignum."
                    :set-text-size (jni-method paint-class "setTextSize" "(F)V")
                    :set-anti-alias (jni-method paint-class "setAntiAlias" "(Z)V")
                    :ascent (jni-method paint-class "ascent" "()F")
-                   :lock-pixels (torcl-ffi:foreign-symbol-pointer
+                   :lock-pixels (egcl-ffi:foreign-symbol-pointer
                                  "AndroidBitmap_lockPixels" graphics)
-                   :unlock-pixels (torcl-ffi:foreign-symbol-pointer
+                   :unlock-pixels (egcl-ffi:foreign-symbol-pointer
                                    "AndroidBitmap_unlockPixels" graphics)
-                   :bitmap-info (torcl-ffi:foreign-symbol-pointer
+                   :bitmap-info (egcl-ffi:foreign-symbol-pointer
                                  "AndroidBitmap_getInfo" graphics)
                    :info-buffer (ffi-alloc 32)
                    :create-bitmap create :bitmap-class bitmap-class :argb-8888 argb-8888
@@ -268,16 +268,16 @@ label measured during layout is measured again on the next frame otherwise."
                     (values (car hit) (cdr hit))
                     (let ((size (* scale +glyph-height+)))
                       (canvas-text-size canvas size)
-                      (let* ((width (torcl::%ffi-call
+                      (let* ((width (egcl::%ffi-call
                                      (jni-slot +jni-call-float-method-a+) :float
                                      '(:pointer :pointer :pointer :pointer)
                                      (list *env* paint measure
                                            (jni-args (list :object (canvas-string canvas text))))))
-                             (rise (torcl::%ffi-call
+                             (rise (egcl::%ffi-call
                                     (jni-slot +jni-call-float-method-a+) :float
                                     '(:pointer :pointer :pointer :pointer)
                                     (list *env* paint (canvas-ascent canvas) (jni-args))))
-                             (fall (torcl::%ffi-call
+                             (fall (egcl::%ffi-call
                                     (jni-slot +jni-call-float-method-a+) :float
                                     '(:pointer :pointer :pointer :pointer)
                                     (list *env* paint descent (jni-args))))
@@ -305,13 +305,13 @@ than drawing it."
                                  (list :object (canvas-argb-8888 canvas))))))
              (address (ffi-alloc 8)))
         (jni-check)
-        (unless (zerop (torcl::%ffi-call (canvas-lock-pixels canvas) :int
+        (unless (zerop (egcl::%ffi-call (canvas-lock-pixels canvas) :int
                                                '(:pointer :pointer :pointer)
                                                (list *env* bitmap address)))
           (error "AndroidBitmap_lockPixels failed for an image"))
-        (torcl::%foreign-memory :copy-in (ffi-ref address :pointer)
+        (egcl::%foreign-memory :copy-in (ffi-ref address :pointer)
                                 (surface-pixels source) :unsigned-int)
-        (torcl::%ffi-call (canvas-unlock-pixels canvas) :int '(:pointer :pointer)
+        (egcl::%ffi-call (canvas-unlock-pixels canvas) :int '(:pointer :pointer)
                                 (list *env* bitmap))
         (ffi-free address)
         (setf (gethash source (canvas-images canvas)) bitmap))))
@@ -362,7 +362,7 @@ drawText call, with real shaping and antialiasing."
         ;; intersected by hand and text is clipped as correctly as anything else.
         (:clip-push
          (destructuring-bind (x y w h &optional (radius 0)) (rest op)
-           (torcl::%ffi-call (jni-slot +jni-call-int-method-a+) :int
+           (egcl::%ffi-call (jni-slot +jni-call-int-method-a+) :int
                                    '(:pointer :pointer :pointer :pointer)
                                    (list *env* object (canvas-save canvas) (jni-args)))
            (if (plusp radius)
@@ -376,11 +376,11 @@ drawText call, with real shaping and antialiasing."
                                           (list :float (+ x w)) (list :float (+ y h))
                                           (list :float radius) (list :float radius)
                                           (list :object (canvas-path-direction-cw canvas))))
-                 (torcl::%ffi-call (jni-slot +jni-call-boolean-method-a+) :int
+                 (egcl::%ffi-call (jni-slot +jni-call-boolean-method-a+) :int
                                          '(:pointer :pointer :pointer :pointer)
                                          (list *env* object (canvas-clip-path canvas)
                                                (jni-args (list :object shape)))))
-               (torcl::%ffi-call (jni-slot +jni-call-boolean-method-a+) :int
+               (egcl::%ffi-call (jni-slot +jni-call-boolean-method-a+) :int
                                        '(:pointer :pointer :pointer :pointer)
                                        (list *env* object (canvas-clip-rect canvas)
                                              (jni-args (list :float x) (list :float y)
@@ -409,7 +409,7 @@ drawText call, with real shaping and antialiasing."
                                     (list :float radius) (list :float radius)
                                     (list :object paint)))
            (jni-release (jni-call-object paint (canvas-set-mask-filter canvas)
-                                         (jni-args (list :object (torcl-ffi:null-pointer)))))))
+                                         (jni-args (list :object (egcl-ffi:null-pointer)))))))
         (:stroke-rect
          (destructuring-bind (x y w h radius thickness ink) (rest op)
            ;; Skia centres a stroke ON the path, so drawing the frame itself
@@ -436,7 +436,7 @@ drawText call, with real shaping and antialiasing."
            ;; to meet it, rather than the path being rebuilt at every position
            ;; and size it appears in.
            (canvas-colour canvas ink)
-           (torcl::%ffi-call (jni-slot +jni-call-int-method-a+) :int
+           (egcl::%ffi-call (jni-slot +jni-call-int-method-a+) :int
                                    '(:pointer :pointer :pointer :pointer)
                                    (list *env* object (canvas-save canvas) (jni-args)))
            (jni-call-void object (canvas-translate canvas)
@@ -478,7 +478,7 @@ drawText call, with real shaping and antialiasing."
            (canvas-text-size canvas (* scale +glyph-height+))
            ;; Bliss places text by its TOP edge; Canvas places it by the
            ;; baseline. ASCENT is negative, so subtracting it moves down.
-           (let ((ascent (torcl::%ffi-call
+           (let ((ascent (egcl::%ffi-call
                           (jni-slot +jni-call-float-method-a+) :float
                           '(:pointer :pointer :pointer :pointer)
                           (list *env* paint (canvas-ascent canvas) (jni-args)))))
@@ -492,12 +492,12 @@ drawText call, with real shaping and antialiasing."
 (defun canvas-pixels (canvas)
   "Lock the Bitmap and return its pixel pointer and stride, in pixels."
   (let ((address (ffi-alloc 8)))
-    (unless (zerop (torcl::%ffi-call (canvas-bitmap-info canvas) :int
+    (unless (zerop (egcl::%ffi-call (canvas-bitmap-info canvas) :int
                                            '(:pointer :pointer :pointer)
                                            (list *env* (canvas-bitmap canvas)
                                                  (canvas-info-buffer canvas))))
       (error "AndroidBitmap_getInfo failed"))
-    (unless (zerop (torcl::%ffi-call (canvas-lock-pixels canvas) :int
+    (unless (zerop (egcl::%ffi-call (canvas-lock-pixels canvas) :int
                                            '(:pointer :pointer :pointer)
                                            (list *env* (canvas-bitmap canvas) address)))
       (error "AndroidBitmap_lockPixels failed"))
@@ -506,7 +506,7 @@ drawText call, with real shaping and antialiasing."
             (floor (ffi-ref (canvas-info-buffer canvas) :int 8) 4))))
 
 (defun canvas-release-pixels (canvas)
-  (torcl::%ffi-call (canvas-unlock-pixels canvas) :int '(:pointer :pointer)
+  (egcl::%ffi-call (canvas-unlock-pixels canvas) :int '(:pointer :pointer)
                           (list *env* (canvas-bitmap canvas))))
 
 ;;; ── as a backend ──────────────────────────────────────────────────────

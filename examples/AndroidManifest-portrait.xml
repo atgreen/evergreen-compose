@@ -4,7 +4,7 @@
   <uses-feature android:glEsVersion="0x00020000" android:required="true" />
   <application android:label="Bliss Demo" android:hasCode="false" android:extractNativeLibs="true" android:debuggable="true" android:theme="@android:style/Theme.Material.NoActionBar.Fullscreen">
     <activity android:screenOrientation="portrait" android:name="android.app.NativeActivity" android:exported="true" android:launchMode="singleTask" android:configChanges="orientation|screenSize|keyboardHidden">
-      <meta-data android:name="android.app.lib_name" android:value="torcl_android" />
+      <meta-data android:name="android.app.lib_name" android:value="egcl_android" />
       <intent-filter>
         <action android:name="android.intent.action.MAIN" />
         <category android:name="android.intent.category.LAUNCHER" />

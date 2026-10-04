@@ -55,8 +55,8 @@ told whether it is pressed without remembering anything itself.")
    (last-display :initform nil :accessor host-last-display)))
 
 (defun android-call (host name return types arguments)
-  (torcl::%ffi-call
-   (torcl-ffi:foreign-symbol-pointer name (host-library host)) return types arguments))
+  (egcl::%ffi-call
+   (egcl-ffi:foreign-symbol-pointer name (host-library host)) return types arguments))
 
 (defun open-android-host (window &key (design-width 360) (design-height 747))
   "Prepare a host for WINDOW, laying out at roughly DESIGN-WIDTH logical pixels.
@@ -71,10 +71,10 @@ controls miss."
   ;; JNI belongs to the host: Canvas cannot be opened without it, and an
   ;; application should not have to know that drawing goes through Java.
   (jni-start)
-  (let* ((library (torcl-ffi:load-foreign-library "libandroid.so"))
+  (let* ((library (egcl-ffi:load-foreign-library "libandroid.so"))
          (host (make-instance 'android-host :window window :library library
                               :buffer (ffi-alloc 48)
-                              :memcpy (torcl-ffi:foreign-symbol-pointer "memcpy")
+                              :memcpy (egcl-ffi:foreign-symbol-pointer "memcpy")
                               :backend nil :width 0 :height 0 :x-ratio 1 :y-ratio 1)))
     ;; The window reports its NATIVE orientation, which on a portrait phone is
     ;; landscape. Touches arrive in portrait coordinates, so the display is the
@@ -87,7 +87,7 @@ controls miss."
       (android-call host "ANativeWindow_setBuffersGeometry" :int '(:pointer :int :int :int)
                     (list window design-width height 1))
       (android-call host "ANativeWindow_lock" :int '(:pointer :pointer :pointer)
-                    (list window (host-buffer host) (torcl-ffi:null-pointer)))
+                    (list window (host-buffer host) (egcl-ffi:null-pointer)))
       (let ((width (ffi-ref (host-buffer host) :int 8)))
         (android-call host "ANativeWindow_unlockAndPost" :int '(:pointer) (list window))
         (android-call host "ANativeWindow_setBuffersGeometry" :int '(:pointer :int :int :int)
@@ -107,8 +107,8 @@ opened at the window's own stride."
   (multiple-value-bind (source stride)
       (canvas-pixels (canvas-backend-canvas (host-backend host)))
     (android-call host "ANativeWindow_lock" :int '(:pointer :pointer :pointer)
-                  (list (host-window host) (host-buffer host) (torcl-ffi:null-pointer)))
-    (torcl::%ffi-call (host-memcpy host) :pointer '(:pointer :pointer :long)
+                  (list (host-window host) (host-buffer host) (egcl-ffi:null-pointer)))
+    (egcl::%ffi-call (host-memcpy host) :pointer '(:pointer :pointer :long)
                             (list (ffi-ref (host-buffer host) :pointer 16)
                                   source (* 4 stride (host-height host))))
     (canvas-release-pixels (canvas-backend-canvas (host-backend host)))
@@ -408,7 +408,7 @@ global reference and that a string made here is one too."
                                 (:string (let ((text (jni-string (second argument))))
                                            (push text made)
                                            (list :object text)))
-                                (:null (list :object (torcl-ffi:null-pointer)))
+                                (:null (list :object (egcl-ffi:null-pointer)))
                                 (t argument)))
                             arguments)))
           (main-call +jni-call-void-method-a+

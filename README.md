@@ -1,6 +1,6 @@
 # Bliss
 
-A UI framework for [TorCL](https://github.com/atgreen/bliss), for Android.
+A UI framework for [EGCL](https://github.com/atgreen/bliss), for Android.
 
 A view is a list:
 
@@ -45,14 +45,14 @@ to rectangles, which is why a backend can be small:
 On a desktop, with no Android anything:
 
 ```sh
-torcl --load run-tests.lisp                       # 47 checks
-torcl --load examples/run.lisp                    # prints a frame as ASCII art
+egcl --load run-tests.lisp                       # 47 checks
+egcl --load examples/run.lisp                    # prints a frame as ASCII art
 ```
 
 On a phone, as a real APK:
 
 ```sh
-torcl-android-new demo --template egl --package org.bliss.demo
+egcl-android-new demo --template egl --package org.bliss.demo
 tools/sync-assets.sh demo        # flattens src/ into demo/assets + bliss.lisp
 make -C demo apk
 adb install -r --user 0 demo/build/*/debug/app.apk

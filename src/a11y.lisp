@@ -123,7 +123,7 @@ why JNI-FIELD exists."
                               (java-method +view-class+ "getRootWindowInsets"
                                            "()Landroid/view/WindowInsets;")
                               (jni-args))))
-      (if (torcl-ffi:null-pointer-p insets-source)
+      (if (egcl-ffi:null-pointer-p insets-source)
           (values 0 0 0 0)
           (let* ((insets (jni-call-object
                           insets-source
@@ -131,7 +131,7 @@ why JNI-FIELD exists."
                                        "(I)Landroid/graphics/Insets;")
                           (jni-args (list :int type))))
                  (class (java-class +insets-class+)))
-            (if (torcl-ffi:null-pointer-p insets)
+            (if (egcl-ffi:null-pointer-p insets)
                 (values 0 0 0 0)
                 (values (jni-int-field insets (jni-field class "left" "I"))
                         (jni-int-field insets (jni-field class "top" "I"))

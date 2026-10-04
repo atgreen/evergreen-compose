@@ -14,7 +14,7 @@
 ;;;;     NativeActivity, with no Java class of our own and no DEX.
 ;;;;
 ;;;; So a framework with a JNI layer can have a keyboard and one without one
-;;;; cannot, which is why this lives in Bliss and not in the TorCL runtime.
+;;;; cannot, which is why this lives in Bliss and not in the EGCL runtime.
 ;;;;
 ;;;; What comes back is the part to be careful about. The window has focus but
 ;;;; no VIEW does (getCurrentFocus is null), so there is no InputConnection --
@@ -56,7 +56,7 @@ change. Keyed by name so the call sites read as the Java they are.")
 (defun java-activity ()
   "The Java NativeActivity object: the fourth pointer of the ANativeActivity."
   (let ((native (android:activity)))
-    (when (torcl-ffi:null-pointer-p native)
+    (when (egcl-ffi:null-pointer-p native)
       (error "There is no ANativeActivity yet"))
     (word-at native 3)))
 
@@ -156,7 +156,7 @@ not yet know which device an event came from."
 (defun main-env ()
   (or *main-env*
       (let ((env (word-at (android:activity) 2))) ; ANativeActivity.env
-        (when (torcl-ffi:null-pointer-p env)
+        (when (egcl-ffi:null-pointer-p env)
           (error "This Activity has no main-thread JNIEnv"))
         (setf *main-table* (word-at env))
         (setf *main-env* env))))
@@ -190,7 +190,7 @@ A pending exception is thread state rather than frame state, so it does survive
 between visits -- and must not, because CheckJNI aborts on the next call made
 while one is pending. Every main-thread call therefore ends here."
   (let ((thrown (%main-call +jni-exception-occurred+ '() :promote t)))
-    (unless (torcl-ffi:null-pointer-p thrown)
+    (unless (egcl-ffi:null-pointer-p thrown)
       (%main-call +jni-exception-clear+ '() :result :void)
       (error "Java on the main thread: ~A"
              (or (jni-text (jni-call-object
@@ -282,7 +282,7 @@ worst that race can produce is a string one frame stale."
                                        (java-method "android/widget/EditText" "getText"
                                                     "()Landroid/text/Editable;")
                                        (jni-args))))
-        (unless (torcl-ffi:null-pointer-p editable)
+        (unless (egcl-ffi:null-pointer-p editable)
           (jni-text (jni-call-object editable
                                      (java-method "java/lang/Object" "toString"
                                                   "()Ljava/lang/String;")

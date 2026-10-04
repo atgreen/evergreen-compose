@@ -26,15 +26,15 @@
 
 (defun android-main (window)
   (android:log (format nil "canvas: JNI ready, version #x~X" (bliss:jni-start)))
-  (let* ((lib (torcl-ffi:load-foreign-library "libandroid.so"))
-         (set-geometry (torcl-ffi:foreign-symbol-pointer "ANativeWindow_setBuffersGeometry" lib))
-         (lock (torcl-ffi:foreign-symbol-pointer "ANativeWindow_lock" lib))
-         (post (torcl-ffi:foreign-symbol-pointer "ANativeWindow_unlockAndPost" lib))
+  (let* ((lib (egcl-ffi:load-foreign-library "libandroid.so"))
+         (set-geometry (egcl-ffi:foreign-symbol-pointer "ANativeWindow_setBuffersGeometry" lib))
+         (lock (egcl-ffi:foreign-symbol-pointer "ANativeWindow_lock" lib))
+         (post (egcl-ffi:foreign-symbol-pointer "ANativeWindow_unlockAndPost" lib))
          ;; Skia does the rasterizing, so the logical surface can be far larger
          ;; than the software backend could afford.
          (height 747)
-         (buffer (torcl-ffi:foreign-alloc 48))
-         (memcpy (torcl-ffi:foreign-symbol-pointer "memcpy"))
+         (buffer (egcl-ffi:foreign-alloc 48))
+         (memcpy (egcl-ffi:foreign-symbol-pointer "memcpy"))
          (last-display nil)
          ;; Ask for a width, then find out what the window ACTUALLY gives: it
          ;; pads the stride for alignment (360 becomes 384 on this device). A
@@ -43,18 +43,18 @@
          ;; frame. Probing beats hardcoding, since the alignment is the
          ;; compositor's business and not the same everywhere.
          (width (progn
-                  (torcl-ffi:foreign-call set-geometry :int '(:pointer :int :int :int)
+                  (egcl-ffi:foreign-call set-geometry :int '(:pointer :int :int :int)
                                           (list window 360 height 1))
-                  (torcl-ffi:foreign-call lock :int '(:pointer :pointer :pointer)
-                                          (list window buffer (torcl-ffi:null-pointer)))
-                  (let ((stride (torcl-ffi:mem-ref buffer :int 8)))
-                    (torcl-ffi:foreign-call post :int '(:pointer) (list window))
+                  (egcl-ffi:foreign-call lock :int '(:pointer :pointer :pointer)
+                                          (list window buffer (egcl-ffi:null-pointer)))
+                  (let ((stride (egcl-ffi:mem-ref buffer :int 8)))
+                    (egcl-ffi:foreign-call post :int '(:pointer) (list window))
                     stride)))
          (canvas (bliss:canvas-open width height)))
-    (torcl-ffi:foreign-call set-geometry :int '(:pointer :int :int :int)
+    (egcl-ffi:foreign-call set-geometry :int '(:pointer :int :int :int)
                             (list window width height 1))
     (android:log (format nil "canvas: ~Dx~D, memcpy ~:[MISSING~;ok~]" width height
-                         (and memcpy (not (torcl-ffi:null-pointer-p memcpy)))))
+                         (and memcpy (not (egcl-ffi:null-pointer-p memcpy)))))
     (loop while (android:running-p)
           do (if (android:paused-p)
                  (sleep 0.02)
@@ -77,25 +77,25 @@
                              ;; do not it has to be one per row or the image
                              ;; skews.
                              (multiple-value-bind (src src-stride) (bliss:canvas-pixels canvas)
-                               (torcl-ffi:foreign-call lock :int '(:pointer :pointer :pointer)
-                                                       (list window buffer (torcl-ffi:null-pointer)))
-                               (let ((dst (torcl-ffi:mem-ref buffer :pointer 16))
-                                     (dst-stride (torcl-ffi:mem-ref buffer :int 8)))
+                               (egcl-ffi:foreign-call lock :int '(:pointer :pointer :pointer)
+                                                       (list window buffer (egcl-ffi:null-pointer)))
+                               (let ((dst (egcl-ffi:mem-ref buffer :pointer 16))
+                                     (dst-stride (egcl-ffi:mem-ref buffer :int 8)))
                                  (when (= *frames* 0)
                                    (android:log (format nil "canvas: bitmap stride ~D, window stride ~D"
                                                         src-stride dst-stride)))
                                  (if (= src-stride dst-stride)
-                                     (torcl-ffi:foreign-call memcpy :pointer
+                                     (egcl-ffi:foreign-call memcpy :pointer
                                                              '(:pointer :pointer :long)
                                                              (list dst src (* 4 src-stride height)))
                                      (dotimes (row height)
-                                       (torcl-ffi:foreign-call
+                                       (egcl-ffi:foreign-call
                                         memcpy :pointer '(:pointer :pointer :long)
-                                        (list (torcl-ffi:inc-pointer dst (* 4 row dst-stride))
-                                              (torcl-ffi:inc-pointer src (* 4 row src-stride))
+                                        (list (egcl-ffi:inc-pointer dst (* 4 row dst-stride))
+                                              (egcl-ffi:inc-pointer src (* 4 row src-stride))
                                               (* 4 width))))))
                                (bliss:canvas-release-pixels canvas)
-                               (torcl-ffi:foreign-call post :int '(:pointer) (list window)))
+                               (egcl-ffi:foreign-call post :int '(:pointer) (list window)))
                              (incf *frames*)
                              (android:log
                               (format nil "canvas redraw ~D: skia ~Dms blit ~Dms (~D ops)"

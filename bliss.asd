@@ -1,5 +1,5 @@
 (asdf:defsystem "bliss"
-  :description "A UI framework for TorCL: view trees are Lisp data."
+  :description "A UI framework for EGCL: view trees are Lisp data."
   :license "MIT OR Apache-2.0"
   :serial t
   :components ((:module "src"

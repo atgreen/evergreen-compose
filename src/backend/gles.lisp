@@ -34,9 +34,9 @@
 (defun gl (name &rest arguments)
   (let ((entry (gethash name *gl*)))
     (unless entry (error "GL function not bound: ~A" name))
-    (torcl::%ffi-call (first entry) (second entry) (third entry) arguments)))
+    (egcl::%ffi-call (first entry) (second entry) (third entry) arguments)))
 
-(defun gles-init (&optional (library (torcl-ffi:load-foreign-library "libGLESv2.so")))
+(defun gles-init (&optional (library (egcl-ffi:load-foreign-library "libGLESv2.so")))
   "Bind the GL entry points the backend uses. Call once the EGL context is
 current, since that is when the driver will resolve them. LIBRARY is accepted so
 a host that has already opened libGLESv2 can pass it rather than opening a
@@ -49,8 +49,8 @@ second handle -- and so this file never has to know who set the context up."
                     ("glClear" :void (:int))
                     ("glViewport" :void (:int :int :int :int))))
       (destructuring-bind (name return types) spec
-        (let ((pointer (torcl-ffi:foreign-symbol-pointer name library)))
-          (when (or (null pointer) (torcl-ffi:null-pointer-p pointer))
+        (let ((pointer (egcl-ffi:foreign-symbol-pointer name library)))
+          (when (or (null pointer) (egcl-ffi:null-pointer-p pointer))
             (error "libGLESv2.so has no ~A" name))
           (setf (gethash name *gl*) (list pointer return types)))))
     (gl "glEnable" +gl-scissor-test+)
@@ -61,11 +61,11 @@ second handle -- and so this file never has to know who set the context up."
 A phone can letterbox, rotate, or hand back a surface that is not the whole
 display, so the only trustworthy size is the one the surface itself reports.
 The EGL handles are passed in: this file draws, and does not own the context."
-  (let ((query-fn (torcl-ffi:foreign-symbol-pointer "eglQuerySurface" egl-library))
+  (let ((query-fn (egcl-ffi:foreign-symbol-pointer "eglQuerySurface" egl-library))
         (out (ffi-alloc 4)))
     (unwind-protect
          (flet ((query (attribute)
-                  (torcl::%ffi-call query-fn :int '(:pointer :pointer :int :pointer)
+                  (egcl::%ffi-call query-fn :int '(:pointer :pointer :int :pointer)
                                           (list display surface attribute out))
                   (ffi-ref out :int)))
            (values (query +egl-width+) (query +egl-height+)))

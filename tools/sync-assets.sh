@@ -1,5 +1,5 @@
 #!/bin/sh
-# Copy the Bliss sources into a TorCL Android project's assets directory.
+# Copy the Bliss sources into a EGCL Android project's assets directory.
 #
 # APK assets are a flat namespace, so the src/ tree is flattened to bliss-*.lisp
 # and a bliss.lisp is generated that LOADs them in dependency order. An app then

@@ -417,15 +417,15 @@ how the whole phone responds to touch."
 
 ;;;; A REPL into this running app, when asked for.
 ;;;;
-;;;; Opt-in through torcl.env, because loading slynk costs seconds and a few
+;;;; Opt-in through egcl.env, because loading slynk costs seconds and a few
 ;;;; megabytes and most runs do not want it:
 ;;;;
-;;;;   echo BLISS_LIVE_REPL=4005 > assets/torcl.env
+;;;;   echo BLISS_LIVE_REPL=4005 > assets/egcl.env
 ;;;;   adb forward tcp:4005 tcp:4005
 ;;;;   icl --connect 127.0.0.1:4005
 
 (defun start-live-repl-if-asked ()
-  (let ((want (torcl-ext:getenv "BLISS_LIVE_REPL")))
+  (let ((want (egcl-ext:getenv "BLISS_LIVE_REPL")))
     (when (and want (plusp (length want)))
       (handler-case
           (let ((port (bliss:start-live-repl

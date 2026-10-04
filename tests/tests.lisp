@@ -550,14 +550,14 @@
   (flet ((bytes (text) (coerce (%modified-utf8 text) 'list))
          (round-trip (text)
            (let* ((encoded (%modified-utf8 text))
-                  (buffer (torcl-ffi:foreign-alloc (1+ (length encoded)))))
+                  (buffer (egcl-ffi:foreign-alloc (1+ (length encoded)))))
              (unwind-protect
                   (progn (loop for byte across encoded
                                for index from 0
-                               do (torcl-ffi:mem-set byte buffer :uchar index))
-                         (torcl-ffi:mem-set 0 buffer :uchar (length encoded))
+                               do (egcl-ffi:mem-set byte buffer :uchar index))
+                         (egcl-ffi:mem-set 0 buffer :uchar (length encoded))
                          (decode-modified-utf8 buffer))
-               (torcl-ffi:foreign-free buffer)))))
+               (egcl-ffi:foreign-free buffer)))))
     (check "ASCII is one byte each" '(104 105) (bytes "hi"))
     (check "Latin-1 is two" '(#xc3 #xa9) (bytes (string (code-char #xe9))))
     (check "the basic plane is three" '(#xe2 #x82 #xac) (bytes (string (code-char #x20ac))))
