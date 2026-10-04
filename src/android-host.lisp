@@ -240,10 +240,7 @@ the widget the press armed -- which is what lets a finger slide off to cancel."
     ;; there may be no event at all to hang it on. This runs on every pass of
     ;; the frame loop, not only on a frame that draws.
     (when (host-tap-tick host) (setf acted t))
-    (loop for event = (multiple-value-list (android:poll-touch))
-          while (first event)
-          do (incf *touch-events*)
-             (destructuring-bind (action x y) event
+    (flet ((dispatch (action x y)
                (multiple-value-bind (lx ly)
                    (scale-point (truncate x) (truncate y)
                                 (host-x-ratio host) (host-y-ratio host))
@@ -350,6 +347,21 @@ the widget the press armed -- which is what lets a finger slide off to cancel."
                               (host-drag-chain host) '()
                               (host-drag-samples host) '()
                               (host-dragging host) nil))))))))
+      ;; Drain first, then dispatch, and a move that is followed by another
+      ;; move is not dispatched at all: the finger reports at 120 Hz and the
+      ;; loop passes at a tenth of that, so ten moves were waiting per pass
+      ;; and each cost ~10 ms of dispatch for the same net scroll. Only the
+      ;; last position of a run matters; a press or a release between two
+      ;; moves breaks the run, so nothing that ARMS or FIRES is ever skipped.
+      (let ((pending '()))
+        (loop for event = (multiple-value-list (android:poll-touch))
+              while (first event)
+              do (incf *touch-events*)
+                 (if (and (eql (first event) 2) (eql (first (first pending)) 2))
+                     (setf (first pending) event)
+                     (push event pending)))
+        (dolist (event (nreverse pending))
+          (apply #'dispatch event))))
     acted))
 
 ;;;; ── a real platform View over the surface ──────────────────────────────
