@@ -261,10 +261,14 @@ testable anywhere."))
 (defmethod present ((backend software-backend) display-list &optional damage)
   (let ((surface (software-backend-surface backend)))
     (if damage
-        ;; No CLEAR: outside the damage the surface already holds the last
-        ;; frame, which is the whole premise. Clearing would be the bug.
+        ;; No CLEAR of the surface: outside the damage it already holds the
+        ;; last frame, which is the whole premise. Inside the damage the old
+        ;; pixels are wrong by definition -- an operation that is gone must
+        ;; leave nothing behind -- so that rectangle is cleared, and only that.
         (draw surface (append (list (list :clip-push (rect-x damage) (rect-y damage)
-                                          (rect-width damage) (rect-height damage)))
+                                          (rect-width damage) (rect-height damage))
+                                    (list :fill-rect (rect-x damage) (rect-y damage)
+                                          (rect-width damage) (rect-height damage) +white+))
                               display-list
                               (list (list :clip-pop))))
         (progn (clear surface +white+)

@@ -569,20 +569,31 @@ operation, with the arguments in it, and no jvalue buffer to fill first."
   (let ((canvas (canvas-backend-canvas backend)))
     (values (canvas-width canvas) (canvas-height canvas))))
 
+(defparameter *clear-colour* (rgb 0 0 0)
+  "What a pixel nothing paints is. Black, because that is what an Android
+surface shows where an application has drawn nothing.")
+
 (defmethod present ((backend canvas-backend) display-list &optional damage)
-  ;; Skia rejects a draw outside the clip by its bounds, which is where the
-  ;; saving is: a blurred shadow costs 1.5-2.5ms to compute and nothing at all
-  ;; to reject. The bitmap is never cleared -- the root's background fill is what
-  ;; covers it -- so outside the damage it still holds the last frame.
-  ;; And culled to it first: the clip only stops pixels, CULL-DISPLAY stops
-  ;; the calls, which is where the time was.
+  ;; Outside the damage the bitmap holds the last frame, and that is the whole
+  ;; premise. INSIDE it, the old pixels are wrong by definition -- a region
+  ;; that was painted and is painted no more would otherwise keep what it had,
+  ;; which is how half a line of text stayed under the navigation bar after
+  ;; the insets shrank the layout above it. So the damage is cleared first, and
+  ;; then the operations that touch it are drawn: Skia rejects a draw outside
+  ;; the clip by its bounds, and CULL-DISPLAY stops the calls that would be
+  ;; rejected, which is where the time was.
   (canvas-draw (canvas-backend-canvas backend)
                (if damage
                    (append (list (list :clip-push (rect-x damage) (rect-y damage)
-                                       (rect-width damage) (rect-height damage)))
+                                       (rect-width damage) (rect-height damage))
+                                 (list :fill-rect (rect-x damage) (rect-y damage)
+                                       (rect-width damage) (rect-height damage)
+                                       *clear-colour*))
                            (cull-display display-list damage)
                            (list (list :clip-pop)))
-                   display-list))
+                   (cons (list :fill-rect 0 0 (canvas-width (canvas-backend-canvas backend))
+                               (canvas-height (canvas-backend-canvas backend)) *clear-colour*)
+                         display-list)))
   backend)
 
 (defmethod backend-text-metrics ((backend canvas-backend))

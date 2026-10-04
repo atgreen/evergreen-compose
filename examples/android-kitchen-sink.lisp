@@ -292,8 +292,12 @@ frame: EQUAL on a seven-element list is cheap, PRIN1 is not."
         screen)))
 
 (defun screen (width height)
+  ;; The whole window, with the navigation bar's inset as a spacer at the
+  ;; bottom: the surface colour runs under the bar, as an edge-to-edge app's
+  ;; should, instead of the screen stopping where the layout does.
   (bliss:scaffold
-   :width width :height (- height (fourth *insets*))
+   :width width :height height
+   :bottom (bliss:spacer :height (fourth *insets*))
    :top (first (chrome))
    :content (list
              (bliss:scroll

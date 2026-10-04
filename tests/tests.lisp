@@ -1008,6 +1008,21 @@ identity, so a test that wants to compare two rectangles must compare numbers."
       (check-true "a scrolled subtree is rendered again" (> *render-misses* 1))
       (check "and its clip is where it scrolled to" -10 (third (first moved))))))
 
+(defun test-vacated-region ()
+  (format t "a vacated region~%")
+  ;; A frame painted a rectangle; the next frame does not, and nothing else
+  ;; covers where it was. The damage says so, and PRESENT must leave that
+  ;; region blank, not holding what it had.
+  (let* ((backend (make-software-backend 10 10))
+         (surface (software-backend-surface backend))
+         (was (list '(:fill-rect 0 0 10 5 #xff0000ff) '(:fill-rect 0 6 10 4 #x0000ffff)))
+         (now (list '(:fill-rect 0 0 10 5 #xff0000ff))))
+    (present backend was)
+    (check "the second rectangle was painted" #x0000ffff (pixel-at surface 5 8))
+    (present backend now (display-damage now was (rect 0 0 10 10)))
+    (check "and when it is gone, so are its pixels" (colour +white+) (pixel-at surface 5 8))
+    (check "while the rectangle that stayed is untouched" #xff0000ff (pixel-at surface 5 2))))
+
 (defun test-damaged-drawing ()
   (format t "damaged drawing~%")
   (let* ((backend (make-software-backend 20 20))
@@ -1776,7 +1791,7 @@ two" 1 nil)))
   (test-layout) (test-render) (test-raster)
   (test-input) (test-widgets) (test-constraints) (test-backend) (test-extension)
   (test-utf8) (test-stacking) (test-text-field) (test-elevation) (test-stretch) (test-paths) (test-horizontal-list) (test-memo-across-frames) (test-damage) (test-damaged-drawing) (test-design-system) (test-screen-composites) (test-svg) (test-borders) (test-fling) (test-semantics) (test-overlays) (test-nested-scroll) (test-bring-into-view) (test-saved-state) (test-platform-view) (test-rounded-clipping) (test-paragraph) (test-taps)
-  (test-target-files-read) (test-culling) (test-placement-across-frames) (test-render-across-frames)
+  (test-target-files-read) (test-culling) (test-placement-across-frames) (test-render-across-frames) (test-vacated-region)
   (test-composites) (test-corners-and-clipping) (test-scroll) (test-clock) (test-virtual-list) (test-image)
   (format t "~%~D checks, ~D failures~%" *checks* *failures*)
   *failures*)
