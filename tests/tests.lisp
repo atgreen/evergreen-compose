@@ -923,6 +923,30 @@ identity, so a test that wants to compare two rectangles must compare numbers."
            '(16 16 18 20) (list (rect-x d) (rect-y d) (rect-width d) (rect-height d))))
   (check "a clip pop paints nothing and bounds nothing" nil (op-bounds '(:clip-pop))))
 
+(defun test-culling ()
+  (format t "culling to the damage~%")
+  (let* ((damage (rect 0 100 100 50))
+         (display (list '(:fill-rect 0 0 100 300 #xffffffff)      ; spans it: kept
+                        '(:fill-rect 0 0 100 20 #x000000ff)       ; above it: dropped
+                        '(:clip-push 0 200 100 100)               ; a group below it
+                        '(:fill-rect 0 200 100 100 #xff0000ff)    ;   whole group dropped,
+                        '(:clip-pop)                              ;   pop included
+                        '(:clip-push 0 90 100 20)                 ; a group across it
+                        '(:fill-rect 0 90 100 5 #x00ff00ff)       ;   leaf above: dropped
+                        '(:fill-rect 0 100 100 5 #x0000ffff)      ;   leaf inside: kept
+                        '(:clip-pop)
+                        '(:unknown-op 1 2 3)))                    ; no bounds: kept
+         (culled (cull-display display damage)))
+    (check "the spanning fill survives" '(:fill-rect 0 0 100 300 #xffffffff) (first culled))
+    (check "the fill above is gone" nil (find #x000000ff culled :key #'sixth))
+    (check "the group below is gone, pop and all" 1 (count :clip-push culled :key #'first))
+    (check "pushes and pops still balance"
+           (count :clip-push culled :key #'first) (count :clip-pop culled :key #'first))
+    (check "inside the crossing group, the leaf above is gone" nil (find #x00ff00ff culled :key #'sixth))
+    (check "and the leaf inside stays" t (and (find #x0000ffff culled :key #'sixth) t))
+    (check "an operation with no bounds is kept" '(:unknown-op 1 2 3) (car (last culled)))
+    (check "five of ten survive" 5 (length culled))))
+
 (defun test-damaged-drawing ()
   (format t "damaged drawing~%")
   (let* ((backend (make-software-backend 20 20))
@@ -1691,7 +1715,7 @@ two" 1 nil)))
   (test-layout) (test-render) (test-raster)
   (test-input) (test-widgets) (test-constraints) (test-backend) (test-extension)
   (test-utf8) (test-stacking) (test-text-field) (test-elevation) (test-stretch) (test-paths) (test-horizontal-list) (test-memo-across-frames) (test-damage) (test-damaged-drawing) (test-design-system) (test-screen-composites) (test-svg) (test-borders) (test-fling) (test-semantics) (test-overlays) (test-nested-scroll) (test-bring-into-view) (test-saved-state) (test-platform-view) (test-rounded-clipping) (test-paragraph) (test-taps)
-  (test-target-files-read)
+  (test-target-files-read) (test-culling)
   (test-composites) (test-corners-and-clipping) (test-scroll) (test-clock) (test-virtual-list) (test-image)
   (format t "~%~D checks, ~D failures~%" *checks* *failures*)
   *failures*)

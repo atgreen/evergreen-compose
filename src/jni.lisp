@@ -17,7 +17,7 @@
 ;;; rather than the pixels it covers. Nothing here is variadic, so the wrapper
 ;;; buys nothing at all.
 ;;;
-;;; The wrapper being this expensive is itself a EGCL bug (egcl bliss-1dp);
+;;; The wrapper being this expensive is itself an EGCL bug (egcl bliss-1dp);
 ;;; when it is fixed this file can go back to the public name.
 
 ;;;; A small JNI layer: enough to call Android's Java API from Lisp.
@@ -146,17 +146,36 @@ valid until the native call that produced it returns."
                             '(:pointer :pointer) (list *env* local))
     global))
 
+(defmacro with-c-string ((pointer text) &body body)
+  "TEXT as a NUL-terminated C string at POINTER for the extent of BODY.
+
+Not ANDROID:WITH-C-STRING. That one writes every byte through the MEM-SET
+wrapper, and a wrapped FFI call on this runtime is ~150us, so a thirty-character
+class name cost 4.6ms to hand over -- most of what a method or field lookup
+cost, measured. FFI-SET is the builtin underneath the wrapper. One byte per
+character, so this is for the ASCII names JNI takes and not for text; text is
+JNI-STRING's job and it encodes properly."
+  (let ((value (gensym "TEXT")) (i (gensym "I")))
+    `(let* ((,value ,text) (,pointer (ffi-alloc (1+ (length ,value)))))
+       (unwind-protect
+            (progn
+              (dotimes (,i (length ,value))
+                (ffi-set (char-code (char ,value ,i)) ,pointer :uchar ,i))
+              (ffi-set 0 ,pointer :uchar (length ,value))
+              ,@body)
+         (ffi-free ,pointer)))))
+
 (defun jni-find-class (name)
   "The class NAME (\"android/graphics/Canvas\"), as a GLOBAL reference."
-  (android:with-c-string (text name)
+  (with-c-string (text name)
     (let ((class (egcl::%ffi-call (jni-slot +jni-find-class+) :pointer
                                          '(:pointer :pointer) (list *env* text))))
       (when (egcl-ffi:null-pointer-p class) (error "No such Java class: ~A" name))
       (jni-global class))))
 
 (defun jni-method (class name signature &key static)
-  (android:with-c-string (n name)
-    (android:with-c-string (s signature)
+  (with-c-string (n name)
+    (with-c-string (s signature)
       (let ((id (egcl::%ffi-call
                  (jni-slot (if static +jni-get-static-method-id+ +jni-get-method-id+))
                  :pointer '(:pointer :pointer :pointer :pointer)
@@ -166,8 +185,8 @@ valid until the native call that produced it returns."
         id))))
 
 (defun jni-static-object-field (class name signature)
-  (android:with-c-string (n name)
-    (android:with-c-string (s signature)
+  (with-c-string (n name)
+    (with-c-string (s signature)
       (let ((id (egcl::%ffi-call (jni-slot +jni-get-static-field-id+) :pointer
                                         '(:pointer :pointer :pointer :pointer)
                                         (list *env* class n s))))
@@ -193,6 +212,39 @@ valid until the native call that produced it returns."
              (:float (ffi-set (float (second spec) 1.0) *args* :float offset))
              (:object (ffi-set (second spec) *args* :pointer offset))))
   *args*)
+
+(defmacro jni-call (return object method &rest typed-args)
+  "Call METHOD on OBJECT through JNI's VARIADIC entry -- CallVoidMethod, not
+CallVoidMethodA -- with TYPED-ARGS passed straight through %FFI-CALL's
+fixed-count support and no jvalue buffer at all.
+
+RETURN is :VOID, :INT, :BOOLEAN, :FLOAT or :OBJECT. TYPED-ARGS alternate a type
+and a value: :INT, :FLOAT, :BOOLEAN or :OBJECT. A float travels as a double,
+because that is what C's default promotions do to a float in a `...' and what
+the JNI side reads back as a jfloat; the round trip through Paint.setTextSize
+is exact. Measured on the Pixel, a seven-float drawRoundRect went from 208us
+through JNI-ARGS to 34us this way: every argument used to cost a crossing of
+its own to be written into the buffer, and now costs none.
+
+A macro so the type list is a literal and nothing is consed for it per call."
+  (let ((slot (ecase return (:void 61) (:object 34) (:boolean 37) (:int 49) (:float 55)))
+        (ffi-return (ecase return
+                      (:void :void) (:object :pointer) (:boolean :int) (:int :int)
+                      (:float :float)))
+        (types '())
+        (values '()))
+    (loop for (type value) on typed-args by #'cddr
+          do (ecase type
+               (:float (push :double types) (push `(float ,value 1d0) values))
+               (:int (push :int types) (push value values))
+               (:boolean (push :int types) (push `(if ,value 1 0) values))
+               (:object (push :pointer types) (push value values))))
+    `(progn
+       (incf *jni-calls*)
+       (egcl::%ffi-call (jni-slot ,slot) ,ffi-return
+                        '(:pointer :pointer :pointer ,@(nreverse types))
+                        (list *env* ,object ,method ,@(nreverse values))
+                        3))))
 
 (defun jni-call-void (object method args)
   (incf *jni-calls*)
@@ -340,8 +392,8 @@ would have to say which survives."
   "A field ID. Unlike a method, a PUBLIC FIELD is how several small Android
 value classes are read -- Insets carries left, top, right and bottom that way
 and offers no getters at all."
-  (android:with-c-string (n name)
-    (android:with-c-string (sig signature)
+  (with-c-string (n name)
+    (with-c-string (sig signature)
       (let ((id (egcl::%ffi-call (jni-slot +jni-get-field-id+) :pointer
                                         '(:pointer :pointer :pointer :pointer)
                                         (list *env* class n sig))))

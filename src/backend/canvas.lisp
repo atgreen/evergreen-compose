@@ -31,10 +31,18 @@
   path-reset path-add-round-rect path-direction-cw clip-path clip-shape
   draw-path translate scale
   set-style set-stroke-width style-fill style-stroke
+  paint-class paint-init
+  matrix matrix-set-scale path-copy-init path-transform path-offset scratch-path
+  ;; (PAINT . CURRENT-ARGB) for an outline, with its style set to STROKE once.
+  stroke-paint (stroke-width :unknown)
   (strings (make-hash-table :test #'equal))
   (images (make-hash-table :test #'eq))
   (blurs (make-hash-table :test #'eql))
   (paths (make-hash-table :test #'eq))
+  (scaled-paths (make-hash-table :test #'eq))
+  ;; (PAINT . CURRENT-ARGB) per blur radius, with the mask filter already on it.
+  (shadow-paints (make-hash-table :test #'eql))
+  (ascents (make-hash-table :test #'eql))
   ;; What the Paint is currently set to, so a frame does not keep saying it.
   (current-colour :unknown)
   (current-text-size :unknown))
@@ -173,10 +181,37 @@ int Java expects rather than a positive bignum."
                    :draw-path (jni-method canvas-class "drawPath"
                                           "(Landroid/graphics/Path;Landroid/graphics/Paint;)V")
                    :translate (jni-method canvas-class "translate" "(FF)V")
-                   :scale (jni-method canvas-class "scale" "(FF)V"))))
+                   :scale (jni-method canvas-class "scale" "(FF)V")
+                   :paint-class paint-class :paint-init paint-init
+                   ;; A path is drawn by OFFSETTING a copy already scaled to its
+                   ;; size into one scratch Path and drawing that: two calls,
+                   ;; where save/translate/scale/draw/restore were five. The
+                   ;; scaling happens once per size, through this one Matrix.
+                   :matrix (let ((class (jni-find-class "android/graphics/Matrix")))
+                             (jni-global (jni-new class (jni-method class "<init>" "()V")
+                                                  (jni-args))))
+                   :matrix-set-scale (jni-method (jni-find-class "android/graphics/Matrix")
+                                                 "setScale" "(FF)V")
+                   :path-copy-init (jni-method (jni-find-class "android/graphics/Path")
+                                               "<init>" "(Landroid/graphics/Path;)V")
+                   :path-transform (jni-method (jni-find-class "android/graphics/Path")
+                                               "transform" "(Landroid/graphics/Matrix;)V")
+                   :path-offset (jni-method (jni-find-class "android/graphics/Path")
+                                            "offset" "(FFLandroid/graphics/Path;)V")
+                   :scratch-path
+                   (jni-global (jni-new (jni-find-class "android/graphics/Path")
+                                        (jni-method (jni-find-class "android/graphics/Path")
+                                                    "<init>" "()V")
+                                        (jni-args))))))
       ;; Antialiasing on, once. It is a Paint flag, not a per-call argument, and
       ;; it is the reason for using Skia at all.
       (jni-call-void paint (canvas-set-anti-alias canvas) (jni-args (list :int 1)))
+      ;; A second Paint that is always an outline, so a stroke no longer has to
+      ;; flip the shared one to STROKE and back around every rectangle.
+      (let ((stroke (canvas-new-paint canvas)))
+        (jni-call-void stroke (canvas-set-style canvas)
+                       (jni-args (list :object (canvas-style-stroke canvas))))
+        (setf (canvas-stroke-paint canvas) (cons stroke :unknown)))
       (jni-check)
       ;; Layout must measure with the font that will be drawn, so this is part
       ;; of opening a canvas rather than something a caller can forget.
@@ -195,15 +230,50 @@ anything it could have drawn."
   (let ((argb (android-colour colour)))
     (unless (eql argb (canvas-current-colour canvas))
       (setf (canvas-current-colour canvas) argb)
-      (jni-call-void (canvas-paint canvas) (canvas-set-colour canvas)
-                     (jni-args (list :int argb))))))
+      (jni-call :void (canvas-paint canvas) (canvas-set-colour canvas) :int argb))))
 
 (defun canvas-text-size (canvas size)
   "Set the text size, unless it is already that. See CANVAS-COLOUR."
   (unless (eql size (canvas-current-text-size canvas))
     (setf (canvas-current-text-size canvas) size)
-    (jni-call-void (canvas-paint canvas) (canvas-set-text-size canvas)
-                   (jni-args (list :float size)))))
+    (jni-call :void (canvas-paint canvas) (canvas-set-text-size canvas) :float size)))
+
+(defun canvas-new-paint (canvas)
+  "A fresh antialiased Paint, as a global reference."
+  (let ((paint (jni-global (jni-new (canvas-paint-class canvas) (canvas-paint-init canvas)
+                                    (jni-args)))))
+    (jni-call-void paint (canvas-set-anti-alias canvas) (jni-args (list :int 1)))
+    paint))
+
+(defun paint-colour (canvas entry colour)
+  "ENTRY is (PAINT . CURRENT-ARGB). Set its colour unless it is already that,
+as CANVAS-COLOUR does for the shared Paint, and return the Paint."
+  (let ((argb (android-colour colour)))
+    (unless (eql argb (cdr entry))
+      (setf (cdr entry) argb)
+      (jni-call :void (car entry) (canvas-set-colour canvas) :int argb))
+    (car entry)))
+
+(defun canvas-shadow-paint (canvas blur)
+  "(PAINT . CURRENT-ARGB) with a BLUR mask filter already on it, made once per
+radius and kept. A shadow used to put the filter on the shared Paint and take it
+off again -- two calls, each returning a reference that had to be released --
+around every shadow of every frame, to say a radius that did not change."
+  (or (gethash blur (canvas-shadow-paints canvas))
+      (setf (gethash blur (canvas-shadow-paints canvas))
+            (let ((paint (canvas-new-paint canvas)))
+              (jni-release (jni-call-object paint (canvas-set-mask-filter canvas)
+                                            (jni-args (list :object (canvas-blur canvas blur)))))
+              (cons paint :unknown)))))
+
+(defun canvas-ascent-for (canvas size)
+  "The shared Paint's ascent at text SIZE, asked once per size. It depends on
+nothing but the size, and every label asked again."
+  (or (gethash size (canvas-ascents canvas))
+      (setf (gethash size (canvas-ascents canvas))
+            (progn
+              (canvas-text-size canvas size)
+              (jni-call :float (canvas-paint canvas) (canvas-ascent canvas))))))
 
 (defun canvas-blur (canvas radius)
   "A BlurMaskFilter of RADIUS, made once per radius and kept.
@@ -246,6 +316,26 @@ the process rather than sixty times a second."
                                                      (list :float bx) (list :float by)
                                                      (list :float x) (list :float y)))))
                   (:close (jni-call-void path (canvas-path-close canvas) (jni-args)))))))))
+
+(defun canvas-scaled-path (canvas commands view-box w h)
+  "COMMANDS as a Path already scaled from VIEW-BOX units to W x H pixels, built
+once per size it is drawn at and kept. An icon appears at one or two sizes, so
+this holds one or two Paths per icon for the life of the process."
+  (let ((sizes (or (gethash commands (canvas-scaled-paths canvas))
+                   (setf (gethash commands (canvas-scaled-paths canvas))
+                         (make-hash-table :test #'equal))))
+        (key (list view-box w h)))
+    (or (gethash key sizes)
+        (setf (gethash key sizes)
+              (let ((path (jni-global
+                           (jni-new (canvas-path-class canvas) (canvas-path-copy-init canvas)
+                                    (jni-args (list :object (canvas-path canvas commands)))))))
+                (jni-call-void (canvas-matrix canvas) (canvas-matrix-set-scale canvas)
+                               (jni-args (list :float (/ w view-box))
+                                         (list :float (/ h view-box))))
+                (jni-call-void path (canvas-path-transform canvas)
+                               (jni-args (list :object (canvas-matrix canvas))))
+                path)))))
 
 (defun canvas-install-metrics (canvas)
   "Make TEXT-EXTENT report what Skia will actually draw.
@@ -352,7 +442,10 @@ the number of pixels it touches.")
 
 Text is drawn by Canvas, not expanded into rectangles: this is the whole point.
 A :glyphs op that the software backend turns into ~180 rectangles becomes one
-drawText call, with real shaping and antialiasing."
+drawText call, with real shaping and antialiasing.
+
+Every call here is a JNI-CALL through the variadic entry: one crossing per
+operation, with the arguments in it, and no jvalue buffer to fill first."
   (let ((paint (canvas-paint canvas))
         (object (canvas-object canvas)))
     (dolist (op display-list)
@@ -362,114 +455,72 @@ drawText call, with real shaping and antialiasing."
         ;; intersected by hand and text is clipped as correctly as anything else.
         (:clip-push
          (destructuring-bind (x y w h &optional (radius 0)) (rest op)
-           (egcl::%ffi-call (jni-slot +jni-call-int-method-a+) :int
-                                   '(:pointer :pointer :pointer :pointer)
-                                   (list *env* object (canvas-save canvas) (jni-args)))
+           (jni-call :int object (canvas-save canvas))
            (if (plusp radius)
                ;; One Path, reset and refilled: a clip is pushed once per
                ;; rounded container per frame, and allocating a Java object for
                ;; each of them is a garbage collection nobody asked for.
                (let ((shape (canvas-clip-shape canvas)))
-                 (jni-call-void shape (canvas-path-reset canvas) (jni-args))
-                 (jni-call-void shape (canvas-path-add-round-rect canvas)
-                                (jni-args (list :float x) (list :float y)
-                                          (list :float (+ x w)) (list :float (+ y h))
-                                          (list :float radius) (list :float radius)
-                                          (list :object (canvas-path-direction-cw canvas))))
-                 (egcl::%ffi-call (jni-slot +jni-call-boolean-method-a+) :int
-                                         '(:pointer :pointer :pointer :pointer)
-                                         (list *env* object (canvas-clip-path canvas)
-                                               (jni-args (list :object shape)))))
-               (egcl::%ffi-call (jni-slot +jni-call-boolean-method-a+) :int
-                                       '(:pointer :pointer :pointer :pointer)
-                                       (list *env* object (canvas-clip-rect canvas)
-                                             (jni-args (list :float x) (list :float y)
-                                                       (list :float (+ x w))
-                                                       (list :float (+ y h))))))))
-        (:clip-pop (jni-call-void object (canvas-restore canvas) (jni-args)))
+                 (jni-call :void shape (canvas-path-reset canvas))
+                 (jni-call :void shape (canvas-path-add-round-rect canvas)
+                           :float x :float y :float (+ x w) :float (+ y h)
+                           :float radius :float radius
+                           :object (canvas-path-direction-cw canvas))
+                 (jni-call :boolean object (canvas-clip-path canvas) :object shape))
+               (jni-call :boolean object (canvas-clip-rect canvas)
+                         :float x :float y :float (+ x w) :float (+ y h)))))
+        (:clip-pop (jni-call :void object (canvas-restore canvas)))
         (:fill-round-rect
          (destructuring-bind (x y w h radius colour) (rest op)
            (canvas-colour canvas colour)
-           (jni-call-void object (canvas-draw-round-rect canvas)
-                          (jni-args (list :float x) (list :float y)
-                                    (list :float (+ x w)) (list :float (+ y h))
-                                    (list :float radius) (list :float radius)
-                                    (list :object paint)))))
+           (jni-call :void object (canvas-draw-round-rect canvas)
+                     :float x :float y :float (+ x w) :float (+ y h)
+                     :float radius :float radius :object paint)))
         (:shadow
          (destructuring-bind (x y w h radius blur dy colour) (rest op)
-           (canvas-colour canvas colour)
-           ;; setMaskFilter RETURNS the previous filter, so both calls make a
-           ;; local reference. On a thread attached with AttachCurrentThread
-           ;; nothing ever pops those, and this runs per shadow per frame.
-           (jni-release (jni-call-object paint (canvas-set-mask-filter canvas)
-                                         (jni-args (list :object (canvas-blur canvas blur)))))
-           (jni-call-void object (canvas-draw-round-rect canvas)
-                          (jni-args (list :float x) (list :float (+ y dy))
-                                    (list :float (+ x w)) (list :float (+ y dy h))
-                                    (list :float radius) (list :float radius)
-                                    (list :object paint)))
-           (jni-release (jni-call-object paint (canvas-set-mask-filter canvas)
-                                         (jni-args (list :object (egcl-ffi:null-pointer)))))))
+           (let ((paint (paint-colour canvas (canvas-shadow-paint canvas blur) colour)))
+             (jni-call :void object (canvas-draw-round-rect canvas)
+                       :float x :float (+ y dy) :float (+ x w) :float (+ y dy h)
+                       :float radius :float radius :object paint))))
         (:stroke-rect
          (destructuring-bind (x y w h radius thickness ink) (rest op)
            ;; Skia centres a stroke ON the path, so drawing the frame itself
            ;; would put half the outline outside the view. Inset by half.
-           (let ((half (/ thickness 2.0)))
-             (canvas-colour canvas ink)
-             (jni-call-void paint (canvas-set-style canvas)
-                            (jni-args (list :object (canvas-style-stroke canvas))))
-             (jni-call-void paint (canvas-set-stroke-width canvas)
-                            (jni-args (list :float thickness)))
-             (jni-call-void object (canvas-draw-round-rect canvas)
-                            (jni-args (list :float (+ x half)) (list :float (+ y half))
-                                      (list :float (- (+ x w) half))
-                                      (list :float (- (+ y h) half))
-                                      (list :float radius) (list :float radius)
-                                      (list :object paint)))
-             ;; The paint is shared, so it goes back to filling or every
-             ;; rectangle after this one becomes an outline.
-             (jni-call-void paint (canvas-set-style canvas)
-                            (jni-args (list :object (canvas-style-fill canvas)))))))
+           (let ((half (/ thickness 2.0))
+                 (paint (paint-colour canvas (canvas-stroke-paint canvas) ink)))
+             (unless (eql thickness (canvas-stroke-width canvas))
+               (setf (canvas-stroke-width canvas) thickness)
+               (jni-call :void paint (canvas-set-stroke-width canvas) :float thickness))
+             (jni-call :void object (canvas-draw-round-rect canvas)
+                       :float (+ x half) :float (+ y half)
+                       :float (- (+ x w) half) :float (- (+ y h) half)
+                       :float radius :float radius :object paint))))
         (:path
          (destructuring-bind (x y w h view-box commands ink) (rest op)
-           ;; The path is built in its own 24-unit space and the CANVAS is moved
-           ;; to meet it, rather than the path being rebuilt at every position
-           ;; and size it appears in.
+           ;; The scaled Path is kept; only its position changes per frame, and
+           ;; OFFSET writes the moved copy into the one scratch Path.
            (canvas-colour canvas ink)
-           (egcl::%ffi-call (jni-slot +jni-call-int-method-a+) :int
-                                   '(:pointer :pointer :pointer :pointer)
-                                   (list *env* object (canvas-save canvas) (jni-args)))
-           (jni-call-void object (canvas-translate canvas)
-                          (jni-args (list :float x) (list :float y)))
-           (jni-call-void object (canvas-scale canvas)
-                          (jni-args (list :float (/ w view-box))
-                                    (list :float (/ h view-box))))
-           (jni-call-void object (canvas-draw-path canvas)
-                          (jni-args (list :object (canvas-path canvas commands))
-                                    (list :object paint)))
-           (jni-call-void object (canvas-restore canvas) (jni-args))))
+           (let ((scratch (canvas-scratch-path canvas)))
+             (jni-call :void (canvas-scaled-path canvas commands view-box w h)
+                       (canvas-path-offset canvas)
+                       :float x :float y :object scratch)
+             (jni-call :void object (canvas-draw-path canvas)
+                       :object scratch :object paint))))
         (:image
          (destructuring-bind (x y w h source) (rest op)
            (let ((bitmap (canvas-image canvas source)))
-             (jni-call-void (canvas-src-rect canvas) (canvas-rect-set canvas)
-                            (jni-args (list :int 0) (list :int 0)
-                                      (list :int (surface-width source))
-                                      (list :int (surface-height source))))
-             (jni-call-void (canvas-dst-rect canvas) (canvas-rectf-set canvas)
-                            (jni-args (list :float x) (list :float y)
-                                      (list :float (+ x w)) (list :float (+ y h))))
-             (jni-call-void object (canvas-draw-bitmap canvas)
-                            (jni-args (list :object bitmap)
-                                      (list :object (canvas-src-rect canvas))
-                                      (list :object (canvas-dst-rect canvas))
-                                      (list :object paint))))))
+             (jni-call :void (canvas-src-rect canvas) (canvas-rect-set canvas)
+                       :int 0 :int 0 :int (surface-width source) :int (surface-height source))
+             (jni-call :void (canvas-dst-rect canvas) (canvas-rectf-set canvas)
+                       :float x :float y :float (+ x w) :float (+ y h))
+             (jni-call :void object (canvas-draw-bitmap canvas)
+                       :object bitmap :object (canvas-src-rect canvas)
+                       :object (canvas-dst-rect canvas) :object paint))))
         (:fill-rect
          (destructuring-bind (x y w h colour) (rest op)
            (canvas-colour canvas colour)
-           (jni-call-void object (canvas-draw-rect canvas)
-                          (jni-args (list :float x) (list :float y)
-                                    (list :float (+ x w)) (list :float (+ y h))
-                                    (list :object paint)))))
+           (jni-call :void object (canvas-draw-rect canvas)
+                     :float x :float y :float (+ x w) :float (+ y h) :object paint)))
         (:glyphs
          (destructuring-bind (x y text scale colour) (rest op)
            (canvas-colour canvas colour)
@@ -478,14 +529,10 @@ drawText call, with real shaping and antialiasing."
            (canvas-text-size canvas (* scale +glyph-height+))
            ;; Bliss places text by its TOP edge; Canvas places it by the
            ;; baseline. ASCENT is negative, so subtracting it moves down.
-           (let ((ascent (egcl::%ffi-call
-                          (jni-slot +jni-call-float-method-a+) :float
-                          '(:pointer :pointer :pointer :pointer)
-                          (list *env* paint (canvas-ascent canvas) (jni-args)))))
-             (jni-call-void object (canvas-draw-text canvas)
-                            (jni-args (list :object (canvas-string canvas text))
-                                      (list :float x) (list :float (- y ascent))
-                                      (list :object paint)))))))
+           (let ((ascent (canvas-ascent-for canvas (* scale +glyph-height+))))
+             (jni-call :void object (canvas-draw-text canvas)
+                       :object (canvas-string canvas text)
+                       :float x :float (- y ascent) :object paint)))))
        (when %start (draw-profile-note (first op) %start))))
     (jni-check)))
 
@@ -527,11 +574,13 @@ drawText call, with real shaping and antialiasing."
   ;; saving is: a blurred shadow costs 1.5-2.5ms to compute and nothing at all
   ;; to reject. The bitmap is never cleared -- the root's background fill is what
   ;; covers it -- so outside the damage it still holds the last frame.
+  ;; And culled to it first: the clip only stops pixels, CULL-DISPLAY stops
+  ;; the calls, which is where the time was.
   (canvas-draw (canvas-backend-canvas backend)
                (if damage
                    (append (list (list :clip-push (rect-x damage) (rect-y damage)
                                        (rect-width damage) (rect-height damage)))
-                           display-list
+                           (cull-display display-list damage)
                            (list (list :clip-pop)))
                    display-list))
   backend)

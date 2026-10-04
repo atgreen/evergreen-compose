@@ -16,7 +16,7 @@
    :render :flatten-to-rects :colour :measure-kind :render-kind :round-rect-spans
    :parse-svg-path :svg-path-strings
    :shadow-rects :shadow-op :*shadow-colour* :stroke-spans :*border-colour* :path-spans :flatten-path
-   :record-placement :placement-overlap :display-damage :op-bounds
+   :record-placement :placement-overlap :display-damage :op-bounds :cull-display
    ;; backends
    :surface :make-surface :surface-width :surface-height :surface-pixels
    :draw :clear :pixel-at :write-ppm :ascii-art :draw-image :surface-rect
@@ -57,7 +57,7 @@
    :platform-view :platform-view-rects :sync-platform-views :make-platform-view :platform-view-call
    ;; JNI, and the Canvas backend over Android's own Skia
    :jni-start :jni-check :jni-find-class :jni-method :jni-string
-   :jni-text :jni-call-boolean :jni-call-int :jni-field :jni-int-field :jni-call-static-int :jni-release :jni-delete-global :with-local-refs :*jni-calls*
+   :jni-call :jni-text :jni-call-boolean :jni-call-int :jni-field :jni-int-field :jni-call-static-int :jni-release :jni-delete-global :with-local-refs :*jni-calls*
    ;; the on-screen keyboard
    :show-keyboard :hide-keyboard :toggle-keyboard :keyboard-shown-p :key-character
    :attach-editor :editor-text :set-editor-text :start-text-input :accepting-text-p

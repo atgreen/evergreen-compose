@@ -464,6 +464,33 @@ percent of the screen damaged, which is how that was found."
                  (rect x y w h))))
     (t nil)))
 
+(defun cull-display (display-list damage)
+  "DISPLAY-LIST without the operations that cannot paint inside DAMAGE.
+
+Clipping to the damage was tried first and saved nothing, because a backend's
+cost is crossings and not pixels: an operation Skia rejects by its bounds still
+cost the call that offered it. So the operations are dropped here, before any
+call is made, and the crossings scale with what CHANGED. During a fling of the
+shelf that is the shelf, and the other nine tenths of the screen cost nothing.
+
+A clip group whose rectangle misses the damage is skipped whole, pop and all,
+without testing what it contains. An operation whose bounds are unknown is
+kept: dropping it would be guessing."
+  (let ((kept '()) (skipping 0))
+    (dolist (op display-list (nreverse kept))
+      (case (first op)
+        (:clip-push
+         (if (or (plusp skipping) (not (rect-intersect (op-bounds op) damage)))
+             (incf skipping)
+             (push op kept)))
+        (:clip-pop
+         (if (plusp skipping) (decf skipping) (push op kept)))
+        (t
+         (unless (plusp skipping)
+           (let ((box (op-bounds op)))
+             (when (or (null box) (rect-intersect box damage))
+               (push op kept)))))))))
+
 (defun display-damage (new old &optional bounds)
   "The rectangle covering every operation that differs between OLD and NEW.
 

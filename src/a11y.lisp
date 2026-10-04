@@ -102,38 +102,45 @@ over aborts the process."
 
 (defparameter +insets-class+ "android/graphics/Insets")
 
-(defun window-insets (kind)
-  "LEFT TOP RIGHT BOTTOM, in physical pixels, for KIND.
+(defun inset-type (kind)
+  "The WindowInsets.Type bit for KIND -- a static method's constant answer,
+asked once."
+  (or (gethash (list :inset-type kind) *java*)
+      (setf (gethash (list :inset-type kind) *java*)
+            (jni-call-static-int
+             (java-class "android/view/WindowInsets$Type")
+             (java-method "android/view/WindowInsets$Type"
+                          (ecase kind (:system-bars "systemBars") (:ime "ime"))
+                          "()I" :static t)
+             (jni-args)))))
 
-KIND is :SYSTEM-BARS or :IME. Zeroes before the view is attached, which is not
-an error: there is no window yet and nothing is covering it.
+(defun window-insets-for (kinds)
+  "For each of KINDS -- :SYSTEM-BARS or :IME -- its (LEFT TOP RIGHT BOTTOM), in
+physical pixels. Zeroes before the view is attached, which is not an error:
+there is no window yet and nothing is covering it.
 
-Insets carries its four numbers as public FIELDS and offers no getters, which is
-why JNI-FIELD exists."
+All of KINDS in one trip, because the decor view, the root WindowInsets and the
+local-reference frame are the same for every kind and were the larger part of
+asking for one. Insets carries its four numbers as public FIELDS and offers no
+getters, which is why JAVA-FIELD exists."
   (with-local-refs ()
-    (let* ((type-class (java-class "android/view/WindowInsets$Type"))
-           (type (jni-call-static-int
-                  type-class
-                  (java-method "android/view/WindowInsets$Type"
-                               (ecase kind (:system-bars "systemBars") (:ime "ime"))
-                               "()I" :static t)
-                  (jni-args)))
-           (insets-source
-             (jni-call-object (decor-view)
-                              (java-method +view-class+ "getRootWindowInsets"
-                                           "()Landroid/view/WindowInsets;")
-                              (jni-args))))
-      (if (egcl-ffi:null-pointer-p insets-source)
-          (values 0 0 0 0)
-          (let* ((insets (jni-call-object
-                          insets-source
-                          (java-method "android/view/WindowInsets" "getInsets"
-                                       "(I)Landroid/graphics/Insets;")
-                          (jni-args (list :int type))))
-                 (class (java-class +insets-class+)))
-            (if (egcl-ffi:null-pointer-p insets)
-                (values 0 0 0 0)
-                (values (jni-int-field insets (jni-field class "left" "I"))
-                        (jni-int-field insets (jni-field class "top" "I"))
-                        (jni-int-field insets (jni-field class "right" "I"))
-                        (jni-int-field insets (jni-field class "bottom" "I")))))))))
+    (let ((source (jni-call-object (decor-view)
+                                   (java-method +view-class+ "getRootWindowInsets"
+                                                "()Landroid/view/WindowInsets;")
+                                   (jni-args))))
+      (loop for kind in kinds
+            collect (let ((insets (unless (egcl-ffi:null-pointer-p source)
+                                    (jni-call-object
+                                     source
+                                     (java-method "android/view/WindowInsets" "getInsets"
+                                                  "(I)Landroid/graphics/Insets;")
+                                     (jni-args (list :int (inset-type kind)))))))
+                      (if (or (null insets) (egcl-ffi:null-pointer-p insets))
+                          (list 0 0 0 0)
+                          (loop for field in '("left" "top" "right" "bottom")
+                                collect (jni-int-field
+                                         insets (java-field +insets-class+ field "I")))))))))
+
+(defun window-insets (kind)
+  "LEFT TOP RIGHT BOTTOM for one KIND. See WINDOW-INSETS-FOR."
+  (values-list (first (window-insets-for (list kind)))))

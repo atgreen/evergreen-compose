@@ -49,6 +49,15 @@ change. Keyed by name so the call sites read as the Java they are.")
         (setf (gethash key *java*)
               (jni-method (java-class class-name) name signature :static static)))))
 
+(defun java-field (class-name name signature)
+  "A field ID, cached like a method. Reading the four public ints of an Insets
+looked each of them up again every time -- two C strings and a crossing apiece,
+on every pass of the frame loop."
+  (let ((key (list class-name name signature :field)))
+    (or (gethash key *java*)
+        (setf (gethash key *java*)
+              (jni-field (java-class class-name) name signature)))))
+
 (defparameter +activity-class+ "android/app/NativeActivity")
 (defparameter +view-class+ "android/view/View")
 (defparameter +imm-class+ "android/view/inputmethod/InputMethodManager")

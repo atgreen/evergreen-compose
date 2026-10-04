@@ -324,7 +324,7 @@ frame: EQUAL on a seven-element list is cheap, PRIN1 is not."
 
 ;;;; Where the frame goes, measured rather than guessed.
 
-(defparameter *phases* (list :touches 0 :build 0 :layout 0 :render 0 :compare 0 :present 0 :blit 0))
+(defparameter *phases* (list :touches 0 :insets 0 :ime 0 :repl 0 :build 0 :layout 0 :render 0 :compare 0 :present 0 :blit 0))
 (defparameter *frames* 0)
 (defparameter *previous-placement* nil)
 (defparameter *matched* 0)
@@ -332,6 +332,8 @@ frame: EQUAL on a seven-element list is cheap, PRIN1 is not."
 (defparameter *damage* 0)
 (defparameter *op-damage* 0)
 (defparameter *ops* 0)
+(defparameter *passes* 0 "Loop iterations since the last report, dirty or not.")
+(defparameter *wall* 0)
 
 (defmacro timing (phase &body body)
   `(let ((start (get-internal-real-time)))
@@ -370,6 +372,17 @@ frame: EQUAL on a seven-element list is cheap, PRIN1 is not."
           (timing :blit (bliss::host-blit host)))))
     (incf *frames*)
     (when (>= *frames* 10)
+      ;; Wall clock as well as the phases, because the phases only account for
+      ;; the frames: the loop also runs, and polls, when nothing is dirty, and
+      ;; the difference between the two is how much of the second went nowhere.
+      (android:log (format nil "10 frames in ~D ms wall, ~D loop passes; per pass: touches ~D insets ~D ime ~D repl ~D (ms)"
+                           (- (get-internal-real-time) *wall*) *passes*
+                           (getf *phases* :touches) (getf *phases* :insets)
+                           (getf *phases* :ime) (getf *phases* :repl)))
+      (when bliss:*draw-profile*
+        (android:log (format nil "present by op: ~{~A ~Dx ~Dms~^, ~}"
+                             (loop for (kind entry) on bliss:*draw-profile* by #'cddr
+                                   append (list kind (car entry) (cdr entry))))))
       (android:log (format nil "10 frames: touches ~D build ~D layout ~D render ~D compare ~D present ~D blit ~D (ms), ~D measures ~D misses, ~D/~D nodes reusable, ~D% by node, ~D% by op, ~D ops, ~D jni, ~D touches"
                            (getf *phases* :touches) (getf *phases* :build) (getf *phases* :layout)
                            (getf *phases* :render) (getf *phases* :compare)
@@ -383,8 +396,9 @@ frame: EQUAL on a seven-element list is cheap, PRIN1 is not."
                            *ops* bliss:*jni-calls* bliss:*touch-events*))
       (setf *matched* 0 *nodes* 0 *damage* 0 *op-damage* 0 *ops* 0 bliss:*jni-calls* 0 bliss:*touch-events* 0
             bliss:*measure-calls* 0 bliss:*measure-misses* 0
-            *frames* 0
-            *phases* (list :touches 0 :build 0 :layout 0 :render 0 :compare 0 :present 0 :blit 0)))))
+            *frames* 0 *passes* 0 *wall* (get-internal-real-time)
+            bliss:*draw-profile* (list :on (cons 0 0))
+            *phases* (list :touches 0 :insets 0 :ime 0 :repl 0 :build 0 :layout 0 :render 0 :compare 0 :present 0 :blit 0)))))
 
 (defun a11y-check (host)
   "Prove the plumbing without turning a screen reader on.
@@ -441,14 +455,18 @@ how the whole phone responds to touch."
     (a11y-check host)
     (start-live-repl-if-asked)
     (android:log (format nil "restored ~S" (restore-app-state)))
+    (setf *wall* (get-internal-real-time)
+          ;; Non-empty, because an empty plist is NIL and would read as "off".
+          bliss:*draw-profile* (list :on (cons 0 0)))
     (loop while (android:running-p)
-          do ;; A request may have redefined anything -- a colour, a widget, the
+          do (incf *passes*)
+             ;; A request may have redefined anything -- a colour, a widget, the
              ;; view function itself -- so a served request owes a frame.
-             (when (bliss:live-repl-poll) (bliss:invalidate))
+             (when (timing :repl (bliss:live-repl-poll)) (bliss:invalidate))
              (when (timing :touches (bliss:host-pump-touches host)) (bliss:invalidate))
              ;; What the system is covering changes when the keyboard opens and
              ;; nothing tells us, so it is asked once a frame.
-             (when (bliss:refresh-insets host)
+             (when (timing :insets (bliss:refresh-insets host))
                (setf *insets* (bliss:host-insets host)
                      ;; The keyboard just moved. Whatever has focus wants to be
                      ;; on screen again -- but not until the NEXT frame, because
@@ -457,7 +475,7 @@ how the whole phone responds to touch."
                      *reveal* (bliss:text-focus-id))
                (android:log (format nil "insets now ~A, reveal ~A" *insets* *reveal*)))
              ;; What the input method did, once a frame.
-             (bliss:pump-text-input)
+             (timing :ime (bliss:pump-text-input))
              (when bliss:*dirty*
                (setf bliss:*dirty* nil)
                (bliss:with-frame-clock (host)

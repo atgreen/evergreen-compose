@@ -52,6 +52,7 @@ told whether it is pressed without remembering anything itself.")
    (drag-samples :initform '() :accessor host-drag-samples)
    (taps :initform '() :accessor host-taps)
    (insets :initform '(0 0 0 0) :accessor host-insets)
+   (insets-asked :initform 0 :accessor host-insets-asked)
    (last-display :initform nil :accessor host-last-display)))
 
 (defun android-call (host name return types arguments)
@@ -92,11 +93,13 @@ controls miss."
         (android-call host "ANativeWindow_unlockAndPost" :int '(:pointer) (list window))
         (android-call host "ANativeWindow_setBuffersGeometry" :int '(:pointer :int :int :int)
                       (list window width height 1))
-        (reinitialize-instance host
-                               :width width :height height
-                               :x-ratio (/ display-width width)
-                               :y-ratio (/ display-height height)
-                               :backend (use-backend (make-canvas-backend width height)))
+        (let ((backend (make-canvas-backend width height)))
+          (setf backend (use-backend backend))
+          (reinitialize-instance host
+                                 :width width :height height
+                                 :x-ratio (/ display-width width)
+                                 :y-ratio (/ display-height height)
+                                 :backend backend))
         (android:log (format nil "bliss: ~Dx~D logical on ~Dx~D display"
                              width height display-width display-height))
         host))))
@@ -115,23 +118,30 @@ opened at the window's own stride."
     (android-call host "ANativeWindow_unlockAndPost" :int '(:pointer)
                   (list (host-window host)))))
 
-(defun refresh-insets (host)
+(defun refresh-insets (host &key (every 0.1))
   "Re-read what the system is covering, in LOGICAL pixels. True if it changed.
 
-Polled once a frame rather than subscribed to, because subscribing is
+Polled rather than subscribed to, because subscribing is
 View.setOnApplyWindowInsetsListener and a listener is a Java class we cannot
-define. Costs a handful of JNI crossings; the keyboard opening is not something
-an application can be told about any other way."
-  (multiple-value-bind (bl bt br bb) (window-insets :system-bars)
-    (multiple-value-bind (il it ir ib) (window-insets :ime)
-      (let ((next (list (floor (max bl il) (host-x-ratio host))
-                        (floor (max bt it) (host-y-ratio host))
-                        (floor (max br ir) (host-x-ratio host))
-                        (floor (max bb ib) (host-y-ratio host)))))
-        (unless (equal next (host-insets host))
-          (setf (host-insets host) next)
-          (invalidate)
-          t)))))
+define; the keyboard opening is not something an application can be told about
+any other way. But not on every pass of the loop: at most once per EVERY
+seconds. Measured, one poll was 11ms and the loop made one every pass, drawn or
+not, which was more than the frames themselves and was most of the delay
+between a touch and anything happening. A keyboard takes a quarter of a second
+to open, so a tenth is not a delay anyone sees."
+  (let ((now (tap-now)))
+    (when (>= (- now (host-insets-asked host)) every)
+      (setf (host-insets-asked host) now)
+      (destructuring-bind ((bl bt br bb) (il it ir ib))
+          (window-insets-for '(:system-bars :ime))
+        (let ((next (list (floor (max bl il) (host-x-ratio host))
+                          (floor (max bt it) (host-y-ratio host))
+                          (floor (max br ir) (host-x-ratio host))
+                          (floor (max bb ib) (host-y-ratio host)))))
+          (unless (equal next (host-insets host))
+            (setf (host-insets host) next)
+            (invalidate)
+            t))))))
 
 (defmacro with-frame-clock ((host) &body body)
   "Run BODY as one frame: the clock fixed, and another frame asked for if the
@@ -375,7 +385,7 @@ frame the same View.")
 WindowManager.LayoutParams keeps x, y and gravity as public fields with no
 setters, so there is no method to call."
   (main-call +jni-set-int-field+
-             (list object (jni-field (java-class class-name) field "I") value)
+             (list object (java-field class-name field "I") value)
              :void))
 
 (defun make-platform-view (class-name)
