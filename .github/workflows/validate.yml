@@ -1,0 +1,31 @@
+# SPDX-FileCopyrightText: Copyright (C) 2026 Anthony Green <green@moxielogic.com>
+# SPDX-License-Identifier: GPL-3.0-or-later WITH Classpath-exception-2.0
+
+name: Validate distribution
+on:
+  workflow_call:
+permissions:
+  contents: read
+jobs:
+  validate:
+    runs-on: ubuntu-24.04
+    container: registry.fedoraproject.org/fedora@sha256:7011f51bd8089d345be42d41f0aa3190d258823528852a5e7ec976fe2fd20f53 # Fedora 44
+    timeout-minutes: 30
+    steps:
+      - name: Install validation tools
+        run: dnf -y install git curl-minimal python3 ShellCheck diffutils findutils tar gzip
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Install pinned EGCL and Android target
+        run: sh tools/install-ci-runtime.sh
+      - name: Host, ASDF, clean APK builds and alignment
+        run: sh tools/check-release.sh
+      - name: Upload verified distribution
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: evergreen-compose-release
+          path: dist/release/
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 14

@@ -1,0 +1,11 @@
+Reply
+
+Adapted from Android Open Source Project Compose Samples / Reply.
+Copyright 2020-2024 The Android Open Source Project.
+Original sample design and imported fixtures/artwork are Apache-2.0.
+See the included LICENSE-APACHE and any accompanying ASSETS_LICENSE.
+
+Lisp implementation and original additions: Copyright 2026 Anthony Green.
+GPL-3.0-or-later WITH Classpath-exception-2.0.
+
+Source: https://github.com/android/compose-samples/tree/main/Reply

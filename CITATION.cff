@@ -1,0 +1,34 @@
+# SPDX-FileCopyrightText: Copyright (C) 2026 Anthony Green <green@moxielogic.com>
+# SPDX-License-Identifier: GPL-3.0-or-later WITH Classpath-exception-2.0
+
+cff-version: 1.2.0
+message: >-
+  If you use Evergreen Compose in research, benchmarks, or published work,
+  please cite the software using this metadata.
+title: Evergreen Compose
+type: software
+authors:
+  - family-names: Green
+    given-names: Anthony
+version: 0.0.1
+date-released: "2026-10-04"
+repository-code: https://github.com/atgreen/evergreen-compose
+url: https://github.com/atgreen/evergreen-compose
+# CFF 1.2 accepts individual SPDX license identifiers here, but not a `WITH`
+# exception expression. The URL and abstract record the complete licensing
+# arrangement: GPL-3.0-or-later WITH Classpath-exception-2.0.
+license: GPL-3.0-or-later
+license-url: https://github.com/atgreen/evergreen-compose#license
+abstract: >-
+  Evergreen Compose is an experimental toolkit for native Android applications
+  written in Evergreen Common Lisp. Lisp describes UI trees, application state,
+  and callbacks; a shared precompiled Jetpack Compose and Material 3 runtime
+  handles layout, input, scrolling, and animation. Applications are packaged
+  and signed with EGCL without a Java or Kotlin build toolchain. The toolkit
+  is distributed under GPL-3.0-or-later with the Classpath Exception 2.0.
+keywords:
+  - Common Lisp
+  - Android
+  - Jetpack Compose
+  - Material Design
+  - user interfaces

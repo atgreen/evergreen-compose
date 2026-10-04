@@ -1,0 +1,73 @@
+# SPDX-FileCopyrightText: Copyright (C) 2026 Anthony Green <green@moxielogic.com>
+# SPDX-License-Identifier: GPL-3.0-or-later WITH Classpath-exception-2.0
+
+name: Feature request
+description: Propose a Compose control, Lisp API, sample, or developer workflow improvement
+title: '[feature] '
+labels: []
+assignees: []
+body:
+- type: markdown
+  attributes:
+    value: Explain the user-visible need first. A Lisp interface or Compose library reference is welcome;
+      an implementation sketch is optional.
+- type: textarea
+  id: problem
+  attributes:
+    label: Problem or use case
+    description: What program, workflow, or limitation would this address?
+  validations:
+    required: true
+- type: textarea
+  id: behavior
+  attributes:
+    label: Proposed behavior
+    description: Show the desired Lisp interface and observable result where possible.
+    placeholder: '(example-call ...)
+
+      ;; => expected result
+
+      '
+  validations:
+    required: true
+- type: dropdown
+  id: category
+  attributes:
+    label: Area
+    options:
+    - Shared Compose control or layout
+    - Lisp UI protocol, events, or state
+    - Scrolling, gestures, animation, or accessibility
+    - Android lifecycle, JNI, permissions, or services
+    - APK packaging or precompiled runtime
+    - Example application
+    - Tablet or other device support
+    - Documentation or contributor experience
+    - Other
+  validations:
+    required: true
+- type: textarea
+  id: compatibility
+  attributes:
+    label: Compatibility and dependencies
+    description: Identify relevant Compose APIs or libraries, supported Android versions, accessibility
+      needs, and whether the shared runtime must change.
+- type: textarea
+  id: alternatives
+  attributes:
+    label: Alternatives considered
+    description: Describe current workarounds or competing designs.
+- type: textarea
+  id: evidence
+  attributes:
+    label: Supporting evidence
+    description: Add representative programs, measurements, external documentation, or prior art.
+- type: checkboxes
+  id: checks
+  attributes:
+    label: Checklist
+    options:
+    - label: I searched existing issues and the control catalog for related work.
+      required: true
+    - label: I described the observable behavior rather than only an implementation mechanism.
+      required: true

@@ -1,0 +1,27 @@
+<!--
+  SPDX-FileCopyrightText: Copyright (C) 2026 Anthony Green <green@moxielogic.com>
+  SPDX-License-Identifier: GPL-3.0-or-later WITH Classpath-exception-2.0
+-->
+
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
+    <!-- This bundle supplies UI, not app/process startup services. The Lisp host
+         owns lifecycle; system fonts supply emoji. Keep the merged manifest inert. -->
+    <permission android:name="${applicationId}.DYNAMIC_RECEIVER_NOT_EXPORTED_PERMISSION" tools:node="remove" />
+    <uses-permission android:name="${applicationId}.DYNAMIC_RECEIVER_NOT_EXPORTED_PERMISSION" tools:node="remove" />
+    <!-- Applications declare network/camera permissions explicitly in Lisp. -->
+    <uses-permission android:name="android.permission.INTERNET" tools:node="remove" />
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" tools:node="remove" />
+    <uses-permission android:name="android.permission.ACCESS_WIFI_STATE" tools:node="remove" />
+    <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" tools:node="remove" />
+    <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" tools:node="remove" />
+    <uses-feature android:glEsVersion="0x00030000" tools:node="remove" />
+    <uses-feature android:name="android.hardware.wifi" tools:node="remove" />
+    <application android:enableOnBackInvokedCallback="true" android:theme="@android:style/Theme.Material.Light.NoActionBar"
+        tools:remove="android:appComponentFactory">
+        <service android:name="androidx.camera.core.impl.MetadataHolderService"
+            tools:node="remove" tools:ignore="Instantiatable" />
+        <provider android:name="androidx.startup.InitializationProvider" tools:node="remove" />
+        <receiver android:name="androidx.profileinstaller.ProfileInstallReceiver" tools:node="remove" />
+    </application>
+</manifest>

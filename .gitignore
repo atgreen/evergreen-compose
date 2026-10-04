@@ -1,6 +1,11 @@
 build/
+# Android dependency metadata is part of the bundled runtime.
+!runtime/compose-v1/META-INF/com/android/build/
 *.ppm
 *.fasl
+__pycache__/
+*.pyc
+dist/
 
 # Beads / Dolt files (added by bd init)
 .dolt/
@@ -11,3 +16,11 @@ build/
 # The APK signing key asdf:make creates on first build. Private; an app update
 # needs the same one, so back it up, but never commit it.
 .egcl-apk-key
+
+# Optional development REPL assets copied from an external Slynk tree.
+assets/slynk-*.lisp
+assets/egcl.env
+
+# Maintainer-only Compose build intermediates (runtime/ is distributed).
+.gradle/
+local.properties

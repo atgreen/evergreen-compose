@@ -1,0 +1,88 @@
+# SPDX-FileCopyrightText: Copyright (C) 2026 Anthony Green <green@moxielogic.com>
+# SPDX-License-Identifier: GPL-3.0-or-later WITH Classpath-exception-2.0
+
+name: Releases
+on:
+  push:
+    tags: ['v[0-9]*']
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: 'build uploads workflow artifacts; test publishes a prerelease'
+        type: choice
+        options: [build, test]
+        default: build
+        required: true
+permissions:
+  contents: read
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+jobs:
+  plan:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    outputs:
+      tag: ${{ steps.plan.outputs.tag }}
+      version: ${{ steps.plan.outputs.version }}
+      publish: ${{ steps.plan.outputs.publish }}
+      prerelease: ${{ steps.plan.outputs.prerelease }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Check release contracts
+        run: python3 tests/release.py
+      - name: Plan release
+        id: plan
+        env:
+          RELEASE_MODE: ${{ inputs.mode }}
+        run: python3 tools/release.py plan
+
+  build:
+    needs: plan
+    # Same-commit workflow; keep syntax supported by actionlint 1.7.12.
+    uses: ./.github/workflows/validate.yml # zizmor: ignore[self-repository]
+
+  publish:
+    needs: [plan, build]
+    if: needs.plan.outputs.publish == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    environment: release
+    permissions:
+      contents: write
+      id-token: write
+      attestations: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: evergreen-compose-release
+          path: assets
+      - name: Verify artifact handoff
+        env:
+          RELEASE_VERSION: ${{ needs.plan.outputs.version }}
+        run: python3 tools/release.py verify --assets assets --version "$RELEASE_VERSION"
+      - name: Attest distribution provenance
+        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        with:
+          subject-path: 'assets/*.tar.gz'
+      - name: Publish verified release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          RELEASE_TAG: ${{ needs.plan.outputs.tag }}
+          PRERELEASE: ${{ needs.plan.outputs.prerelease }}
+          COMMIT: ${{ github.sha }}
+        run: |
+          flags=(--verify-tag)
+          if [[ "$PRERELEASE" == true ]]; then
+            flags=(--target "$COMMIT" --prerelease --latest=false)
+          fi
+          gh release create "$RELEASE_TAG" --draft "${flags[@]}" \
+            --title "Evergreen Compose $RELEASE_TAG" \
+            --notes-file assets/RELEASE-NOTES.md assets/*
+          gh release edit "$RELEASE_TAG" --draft=false

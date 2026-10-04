@@ -1,0 +1,22 @@
+# SPDX-FileCopyrightText: Copyright (C) 2026 Anthony Green <green@moxielogic.com>
+# SPDX-License-Identifier: GPL-3.0-or-later WITH Classpath-exception-2.0
+
+# Keep immutable GitHub Actions pins current, grouped as in Evergreen.
+# Compose, Kotlin, AGP and native-library updates are coordinated manually:
+# they require rebuilding and validating the distributed runtime bundle.
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    # One PR for all of them: these move together and each needs the same
+    # look at the release notes.
+    groups:
+      actions:
+        patterns:
+          - '*'
+    commit-message:
+      prefix: 'Bump'
+    labels:
+      - dependencies

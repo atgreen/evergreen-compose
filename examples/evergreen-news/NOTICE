@@ -1,0 +1,14 @@
+Evergreen News
+
+Adapted from Jetpack Compose Samples / JetNews.
+Copyright 2020-2024 The Android Open Source Project.
+Original sample code is licensed under Apache-2.0.
+See the included LICENSE-APACHE for the full license.
+
+Lisp implementation changes, replacement Common Lisp articles and original
+illustrations: Copyright 2026 Anthony Green.
+GPL-3.0-or-later WITH Classpath-exception-2.0.
+The original JetNews articles and artwork are not included in this adaptation.
+Editorial names and publication names in Interests are sample content.
+
+Source: https://github.com/android/compose-samples/tree/main/JetNews

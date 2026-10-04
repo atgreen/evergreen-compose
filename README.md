@@ -1,148 +1,163 @@
-# Bliss
+# Evergreen Compose
 
-A UI framework for [Evergreen Common Lisp](https://github.com/atgreen/evergreen), for Android.
+Build Android apps in [Evergreen Common Lisp](https://github.com/atgreen/evergreen),
+using Jetpack Compose and Material 3.
 
-A view is a list:
+Version **0.0.1** is the first experimental baseline. See the
+[changelog](CHANGELOG.md) for capabilities and known limits.
 
-```lisp
-(column (:padding 6 :gap 5 :background "#101820")
-  (label (:text "BLISS" :size 3 :colour "#ffffff"))
-  (row (:gap 3)
-    (box (:width 14 :height 14 :fill "#e04040"))
-    (box (:width 14 :height 14 :fill "#40c040"))))
-```
-
-Not a list that *describes* widgets — a list that *is* the interface. It can be
-quoted, built with backquote, transformed with `mapcar`, produced by a macro,
-printed, read back, and diffed. A user grows a vocabulary for their own domain by
-writing functions that return lists; the framework offers no extension point
-because it does not need one.
-
-## How it fits together
-
-```
-view tree  ──layout──▶  absolute frames  ──render──▶  display list  ──▶  backend
- (data)                  (laid-out)                   (data)            (pixels)
-```
-
-The display list is the whole contract with a backend: a flat, ordered sequence
-of absolute operations, painted back to front -- rectangles, rounded
-rectangles, shadows, outlines, glyph runs, paths, images and a clip stack. Flat
-and absolute, so a backend needs no tree walk and no transform stack. There are
-three:
-
-* **`backend/canvas`** -- the one a phone uses. It draws through
-  `android.graphics.Canvas`, which is Skia, reached over JNI from Lisp with no
-  Java in the application: real text shaping, antialiasing and blur, through
-  one foreign call per operation.
-* **`backend/software`** -- a plain RGBA buffer with no dependencies at all.
-  `FLATTEN-TO-RECTS` reduces even text to rectangles, which is what makes the
-  framework testable on any machine with no GPU, no window system, no emulator
-  and no phone. It writes PPM and prints frames as ASCII, so a rendering bug is
-  visible in a terminal or a test failure.
-* **`backend/gles`** -- six GL entry points, every operation an axis-aligned
-  rectangle of solid colour. It predates the Canvas backend and is kept for
-  the two examples that use it.
-
-Layout is memoised across frames by node identity: a subtree the application
-hands back unchanged is not measured again. Each frame is diffed against the
-last as operations, and only the operations inside the damaged rectangle
-reach the backend -- the cost of a frame is what changed, not what is on
-screen.
-
-## Running it
-
-On a desktop, with no Android anything:
-
-```sh
-egcl --load run-tests.lisp                       # 463 checks
-egcl --load examples/run.lisp                    # prints a frame as ASCII art
-```
-
-On a phone, as a real APK, with no Android SDK, JDK or Make -- just `egcl` and
-its `egcl-target-android` package:
-
-```sh
-egcl --eval '(require :asdf)' \
-     --eval '(asdf:load-asd (truename "bliss.asd"))' \
-     --eval '(asdf:make "bliss/apk")'
-adb install -r --user 0 build/bliss.apk
-adb shell am start -n org.bliss.demo/android.app.NativeActivity
-adb logcat -s egcl
-```
-
-`assets/app.lisp` names the demo; every `examples/android-*.lisp` is in the APK,
-so switching is one line. The load order lives in `load-order.sexp`, which is
-also an asset: the device loads what `bliss.asd` packaged and the two cannot
-disagree. `EGCL_APK_RUNTIME` points the build at a runtime other than the
-installed one.
-
-`--user 0` is deliberate and is not a default you should drop: on a device with a
-work profile, an unqualified `adb install` can put the app under a user you did
-not choose.
-
-The kitchen-sink demo logs, every ten frames, where the time went -- build,
-layout, render, present by operation kind, and the loop's own polling -- and
-`examples/android-bench.lisp` times each thing the frame loop does, loaded on
-request. Numbers in the source comments are measurements on a Pixel 10 Pro
-XL, and they are what the design decisions rest on.
-
-## The primitives
-
-Eight: `label`, `paragraph`, `image`, `path`, `box`, `row`, `column` and
-`platform-view`. A `box` with no children is a rectangle; a `box` with children
-**stacks** them on the z axis, which is the one arrangement `row` and `column`
-cannot express between them -- a badge over an icon, a scrim over a sheet, a
-spinner centred on a panel. A `paragraph` is text broken to the width it is
-given; a `path` is vector geometry in its own coordinate space; a
-`platform-view` is a real `android.view.View` -- a WebView, say -- placed by
-the layout and moved when it moves.
-
-Everything else is a function. `button` is a `column` with a `label` in it;
-`card`, `app-bar`, `scaffold`, `list-item`, `chip`, `checkbox`, `radio`,
-`switch`, `slider`, `tabs`, `snackbar`, `dialog`, `text-field`, `progress`,
-`scroll` and `virtual-list` are the same, drawn from a theme with two colour
-schemes, a type scale and a spacing scale. A handler is a *property*, not a
-widget, so any node is touchable, draggable, flingable, long-pressable:
+**Compose is the app model.** Write UI trees, state and callbacks in Lisp.
+Evergreen Compose supplies a shared, precompiled Android runtime. Application builds require
+EGCL and `egcl-target-android` (runtime API 4), **no JDK, Kotlin compiler, Gradle,
+Android SDK or NDK**. Runtime maintainers use those tools to build the shared bundle.
 
 ```lisp
-(column (:on-press #'choose :on-drag #'scroll-it) ...)
+(defvar *count* 0)
+
+(defun counter ()
+  (evergreen-compose:ui :theme :children
+    (list (evergreen-compose:ui :column :padding 24 :children
+      (list (evergreen-compose:ui :button :id "counter"
+                :text (format nil "Count: ~D" *count*)
+                :on-click (lambda () (incf *count*))))))))
+
+(defun android-main (window)
+  (declare (ignore window))
+  (evergreen-compose:run-compose-app #'counter))
 ```
 
-Icons are path data, converted from Material's SVG sources offline by
-`tools/make-icons.sh` -- so an icon is Lisp you can print and diff, not an
-opaque glyph, and an application ships the ones it names rather than a whole
-font.
+A callback changes Lisp state; Evergreen Compose publishes a new tree. Compose handles
+layout, text, accessibility, focus, scrolling and animation on Android's UI
+thread. Scrolling does not call back into Lisp for each frame. Application
+callbacks run on the Lisp worker, so they cannot block Android's UI thread.
 
-Adding a genuinely new primitive means a `measure-kind` and a `render-kind`
-method. Adding a widget means writing a function, and the framework does not need
-to be told.
+Start with the complete [Hello Evergreen Compose app](examples/hello/app.lisp) and its
+[ASDF definition](examples/hello/hello.asd). The [Compose guide](docs/COMPOSE.md)
+explains components, callbacks, state, runtime extensions and packaging.
+Browse the [76 shared controls](docs/COMPOSE-CONTROLS.md) or build the
+[interactive catalog app](examples/catalog/app.lisp) to try them on a phone.
 
-## On the phone
+[Evergreen News](examples/evergreen-news/app.lisp) is a fuller example with Common
+Lisp articles, bookmarks, interests, and light/dark themes. It adapts the JetNews
+sample layout with original Lisp content and illustrations. Build
+`evergreen-news/apk` from its [ASDF definition](examples/evergreen-news/evergreen-news.asd).
 
-Beyond drawing, and all without a line of Java or a DEX file: the soft
-keyboard and a text field that stays in view when it opens; window insets;
-touch with slop, drag chains that hand leftover movement to the scroller
-behind, fling with velocity, long press and double tap; what a screen reader
-can be told without a view hierarchy to give it (announcements and a screen
-description); state that survives the process being killed; and a REPL into
-the running application over `adb forward`.
+The six phone sample adaptations use the same shared runtime:
 
-## What this is not, yet
+| App | Example | Try |
+| --- | --- | --- |
+| Evergreen News | `examples/evergreen-news` | Articles, bookmarks, interests |
+| Evergreen Chat | `examples/evergreen-chat` | Local messages, channels, attachments, profiles |
+| Evergreen Snack | `examples/evergreen-snack` | Search, favourites, quantities, basket |
+| Reply | `examples/reply` | Read, star, archive, draft, reply locally |
+| Evergreen Lagged | `examples/evergreen-lagged` | Sleep periods, expandable stages, heart-rate chart |
+| Evergreen Caster | `examples/evergreen-caster` | Follow shows, save episodes, queue, audio playback |
 
-Text wraps, but there is no bidi and no `StaticLayout`, so a paragraph is a
-run of lines, not a layout. Accessibility is announcements, not
-explore-by-touch: that needs a Java class, and there is none. Touch is one
-finger. Rotation is pinned off. The widget set is thirty against Material 3's
-hundred. And the whole view tree is rebuilt every frame rather than
-recomposed, which the layout memo makes cheap but not free -- on the Pixel a
-scroll frame is still tens of milliseconds of layout, and that is the current
-front.
+Each directory has a matching `.asd`; load it and make `<directory-name>/apk`
+as in the Hello build below. All six save their selected application state in private storage across restarts.
+Evergreen News refreshes Planet Lisp, caches article text, and preserves bookmarks.
+Evergreen Caster accepts an HTTPS podcast RSS/Atom URL (initially defn), caches
+show notes and selections, and streams publisher audio/video. It also includes
+six original offline Common Lisp episodes with synthetic narration. Queue
+advance uses **Play next**; downloaded audio and background playback are not included.
+Chat conversations, Reply mail, Snack orders and Lagged health readings remain
+sample data; local edits persist and no messages or orders are sent.
+Phone layouts use native scrolling; tablet-specific adaptive layouts are not
+yet ported. Upstream credits and asset terms accompany each sample.
 
-## Licence
+### Evergreen Sketchbook
 
-MIT OR Apache-2.0.
+[Sketchbook](examples/evergreen-sketchbook/app.lisp) is an original drawing sample:
+finger/stylus ink, six colors, three brush sizes, undo/redo, a gallery, and named
+sketches saved on the device. Its commented Lisp source owns all app logic. The
+shared `:drawing-pad` control keeps active ink on the UI thread and reports
+completed strokes to Lisp. Build `evergreen-sketchbook/apk` from its `.asd`.
 
-Bliss also ships geometry generated from [Material Design
-Icons](https://github.com/google/material-design-icons), which is Apache-2.0 and
-Copyright Google. See [LICENSES.md](LICENSES.md).
+## Build and run
+
+On Fedora, install `egcl-target-android` from the EGCL package distribution; its
+dependencies include matching EGCL and ADB. You also need this Evergreen Compose
+distribution, including `runtime/compose-v1/`. No separate Quicklisp/ocicl setup
+or dependency download is required to build an app.
+
+The verified package pair is `egcl` / `egcl-target-android`
+`0.0.1-6.fc44.x86_64`, containing `egcl-apk-asdf` and runtime
+API 4. Fedora also installs a Java **runtime**, Python, Make and QEMU through
+EGCL's package dependencies for its other workflows. Evergreen Compose's Lisp
+APK builder does not invoke them. Other operating systems/package versions have
+not been validated here.
+
+From the extracted distribution or checkout:
+
+```sh
+EGCL_HEAP_MB=2048 egcl --no-init \
+  --eval '(require :asdf)' \
+  --eval '(asdf:load-asd (truename "evergreen-compose.asd"))' \
+  --eval '(asdf:make "evergreen-compose/apk")'
+```
+
+This produces `build/evergreen-compose.apk`, signed with the local `.egcl-apk-key`. Keep that
+private key to install future updates under the same identity. The larger heap
+avoids a known EGCL allocation failure during APK ZIP/signing assembly.
+
+The default demo uses the [Hello app](examples/hello/app.lisp): a counter, text
+input, theme switch, dialog and scrolling list. The separate controls gallery
+demonstrates the full catalog.
+
+ADB is optional deployment tooling, not a build dependency:
+
+```sh
+adb install --user 0 -r build/evergreen-compose.apk
+adb shell am start --user 0 -n dev.egcl.compose.demo/android.app.NativeActivity
+```
+
+To build the independent example with its own application ID:
+
+```sh
+EGCL_HEAP_MB=2048 egcl --no-init \
+  --eval '(require :asdf)' \
+  --eval '(asdf:load-asd (truename "evergreen-compose-build.asd"))' \
+  --eval '(asdf:load-system "evergreen-compose-build")' \
+  --eval '(asdf:load-asd (truename "examples/hello/hello.asd"))' \
+  --eval '(asdf:make "hello/apk")'
+```
+
+Once Evergreen Compose is registered in ASDF's source registry, another project needs only
+`:defsystem-depends-on ("evergreen-compose-build")`, `:class "evergreen-compose-build:compose-apk"` and
+its application assets. Framework sources and the runtime are included for it.
+
+## Validation
+
+```sh
+sh tools/check.sh                         # Portable protocol, state and example tests
+XDG_CACHE_HOME=/tmp/evergreen-compose-cache egcl --no-init --load tests/asdf.lisp
+sh tests/compose-no-toolchain.sh          # Fresh caches/environment; egcl-only PATH
+shellcheck tools/*.sh tests/*.sh
+sh tools/check-release.sh                # Complete CI/release archive and APK gate
+```
+
+The ASDF checks validate the distributed runtime's checksums and asset/load
+consistency. They need `egcl-target-android`, but no SDK or JDK. Android-only
+bridge tests are documented in the [Compose guide](docs/COMPOSE.md#runtime-maintainers).
+Host checks cannot establish JNI, IME, lifecycle or device rendering behavior.
+
+GitHub Actions runs the full archive/APK gate on pushes and pull requests.
+Release automation supports matching version tags and manual build/test modes;
+see [release automation](docs/RELEASING.md#github-actions).
+
+Runtime contributors preparing a distribution should follow
+[Preparing a source release](docs/RELEASING.md).
+
+## Contributing and project policies
+
+Start with [CONTRIBUTING.md](CONTRIBUTING.md) for setup, validation and pull
+requests. Participation follows the [Code of Conduct](CODE_OF_CONDUCT.md).
+Report suspected vulnerabilities through [SECURITY.md](SECURITY.md).
+[CITATION.cff](CITATION.cff) provides citation metadata for research and published work.
+
+## License
+
+Evergreen Compose uses the same license as Evergreen Common Lisp:
+**GPL-3.0-or-later WITH Classpath-exception-2.0**.
+See [LICENSE](LICENSE), [the Classpath Exception](LICENSE.classpath-exception),
+and [third-party notices](LICENSES.md).

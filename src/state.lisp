@@ -1,3 +1,6 @@
+;;;; SPDX-FileCopyrightText: Copyright (C) 2026 Anthony Green <green@moxielogic.com>
+;;;; SPDX-License-Identifier: GPL-3.0-or-later WITH Classpath-exception-2.0
+
 ;;;; State that outlives the process.
 ;;;;
 ;;;; Android destroys an Activity whenever it likes -- a configuration change,
@@ -10,7 +13,7 @@
 ;;;; So this is not a cache and not a preference store. It is the answer to
 ;;;; "what did the user have in front of them", and it is the difference between
 ;;;; an app that survives a phone call and one that starts over.
-(in-package :bliss)
+(in-package :evergreen-compose)
 
 (defvar *state-store*
   (let ((held nil))
