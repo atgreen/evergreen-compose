@@ -21,7 +21,7 @@ looks for it.
 
 The default pair holds the string in this image, which is exactly as durable as
 the image and therefore useless on a phone -- but it means SAVE-STATE and
-RESTORE-STATE work, and can be tested, with no platform at all. SRC/ANDROID.LISP
+RESTORE-STATE work, and can be tested, with no platform at all. SRC/ANDROID-HOST.LISP
 replaces it with the real one.")
 
 (defun state-call (key &rest arguments)

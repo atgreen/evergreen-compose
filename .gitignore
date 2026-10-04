@@ -7,3 +7,7 @@ build/
 *.db
 .beads-credential-key
 .beads/proxieddb/
+
+# The APK signing key asdf:make creates on first build. Private; an app update
+# needs the same one, so back it up, but never commit it.
+.egcl-apk-key

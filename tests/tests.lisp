@@ -4,6 +4,11 @@
 ;;; it tests has none either. Every check reports, and the runner exits non-zero
 ;;; if any failed, so this works from a shell, from CI, and over `adb shell`.
 
+(defparameter *tests-directory*
+  (make-pathname :name nil :type nil :defaults *load-truename*)
+  "Where this file is, captured while it loads: RUN-TESTS is called from
+run-tests.lisp, by which time *LOAD-TRUENAME* names that file instead.")
+
 (defparameter *failures* 0)
 (defparameter *checks* 0)
 
@@ -1647,12 +1652,46 @@ two" 1 nil)))
   (check "each gesture names its handler" '(:on-press :on-long-press :on-double-press)
          (mapcar #'tap-handler '(:press :long-press :double-press))))
 
+;;; ── the target half ─────────────────────────────────────────
+;;;
+;;; SRC/JNI.LISP and the files after it in load-order.sexp cannot be LOADed
+;;; here: every one of them calls into a runtime that exists inside an APK and
+;;; nowhere else. They can still be READ, and reading them is most of what went
+;;; wrong in practice -- an unbalanced paren reaches the device as "stream
+;;; error: unterminated list", with no file and no line, after a build, an
+;;; install and a launch. A shell script used to shell out to Python to count
+;;; parentheses before packaging. The reader already knows how, and unlike the
+;;; counting it knows what a string, a #| |# and a #\( are.
+
+(defun test-target-files-read ()
+  (format t "target files~%")
+  (let ((order (with-open-file (s (merge-pathnames "../load-order.sexp"
+                                                  *tests-directory*))
+                 (read s))))
+    (dolist (name (getf order :target))
+      (let ((path (merge-pathnames (concatenate 'string "../src/" name ".lisp")
+                                   *tests-directory*)))
+        (check-true (format nil "~A.lisp reads" name)
+                    (handler-case
+                        (with-open-file (s path)
+                          ;; *READ-SUPPRESS* is what makes this possible at all:
+                          ;; these files name the runtime's ANDROID package,
+                          ;; which does not exist here, and a plain READ dies on
+                          ;; ANDROID:WITH-C-STRING long before any paren is
+                          ;; wrong. Suppressed, the reader still parses lists,
+                          ;; strings, #| |# and #\( exactly, and interns nothing.
+                          (let ((*read-suppress* t))
+                            (loop for form = (read s nil :eof) until (eq form :eof)))
+                          t)
+                      (error (e) (format t "~&       ~A~%" e) nil)))))))
+
 (defun run-tests ()
   (setf *failures* 0 *checks* 0)
   (test-geometry) (test-paint) (test-font)
   (test-layout) (test-render) (test-raster)
   (test-input) (test-widgets) (test-constraints) (test-backend) (test-extension)
   (test-utf8) (test-stacking) (test-text-field) (test-elevation) (test-stretch) (test-paths) (test-horizontal-list) (test-memo-across-frames) (test-damage) (test-damaged-drawing) (test-design-system) (test-screen-composites) (test-svg) (test-borders) (test-fling) (test-semantics) (test-overlays) (test-nested-scroll) (test-bring-into-view) (test-saved-state) (test-platform-view) (test-rounded-clipping) (test-paragraph) (test-taps)
+  (test-target-files-read)
   (test-composites) (test-corners-and-clipping) (test-scroll) (test-clock) (test-virtual-list) (test-image)
   (format t "~%~D checks, ~D failures~%" *checks* *failures*)
   *failures*)

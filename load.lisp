@@ -1,6 +1,8 @@
-;;;; Load Bliss without ASDF, for a bare `egcl --load load.lisp`.
-;;;; The component order here and in bliss.asd must agree.
-(dolist (name '("src/package" "src/ffi" "src/geometry" "src/paint" "src/font"
-                "src/view" "src/layout" "src/clock" "src/input" "src/semantics" "src/text-input" "src/state" "src/live" "src/widgets" "src/icons-material"
-                "src/path" "src/svg" "src/display" "src/platform-view" "src/backend" "src/backend/software" "src/utf8"))
-  (load (merge-pathnames (concatenate 'string name ".lisp") *load-truename*)))
+;;;; Load Bliss without ASDF, for a bare `egcl --load load.lisp'.
+;;;; The order comes from load-order.sexp, so there is nothing here to keep in
+;;;; step with bliss.asd.
+(let* ((here (make-pathname :name nil :type nil :defaults *load-truename*))
+       (order (with-open-file (s (merge-pathnames "load-order.sexp" here))
+                (read s))))
+  (dolist (name (getf order :host))
+    (load (merge-pathnames (concatenate 'string "src/" name ".lisp") here))))

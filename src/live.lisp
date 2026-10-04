@@ -27,7 +27,7 @@
 (defvar *live-log* (lambda (message) (format t "~&; ~A~%" message))
   "Where this file reports. A function of one string.
 
-A hook rather than a call, because SRC/ANDROID.LISP is not loaded on a desktop
+A hook rather than a call, because SRC/ANDROID-HOST.LISP is not loaded on a desktop
 and ANDROID:LOG is therefore not always a function that exists. The Android host
 points this at logcat when it loads.")
 

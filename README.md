@@ -45,18 +45,25 @@ to rectangles, which is why a backend can be small:
 On a desktop, with no Android anything:
 
 ```sh
-egcl --load run-tests.lisp                       # 47 checks
+egcl --load run-tests.lisp                       # 455 checks
 egcl --load examples/run.lisp                    # prints a frame as ASCII art
 ```
 
-On a phone, as a real APK:
+On a phone, as a real APK, with no Android SDK, JDK or Make -- just `egcl` and
+its `egcl-target-android` package:
 
 ```sh
-egcl-android-new demo --template egl --package org.bliss.demo
-tools/sync-assets.sh demo        # flattens src/ into demo/assets + bliss.lisp
-make -C demo apk
-adb install -r --user 0 demo/build/*/debug/app.apk
+egcl --eval '(require :asdf)' \
+     --eval '(asdf:load-asd (truename "bliss.asd"))' \
+     --eval '(asdf:make "bliss/apk")'
+adb install -r --user 0 build/bliss.apk
+adb shell am start -n org.bliss.demo/android.app.NativeActivity
 ```
+
+`assets/app.lisp` names the demo; every `examples/android-*.lisp` is in the APK,
+so switching is one line. The load order lives in `load-order.sexp`, which is
+also an asset: the device loads what `bliss.asd` packaged and the two cannot
+disagree.
 
 `--user 0` is deliberate and is not a default you should drop: on a device with a
 work profile, an unqualified `adb install` can put the app under a user you did
