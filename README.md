@@ -1,6 +1,6 @@
 # Bliss
 
-A UI framework for [EGCL](https://github.com/atgreen/bliss), for Android.
+A UI framework for [Evergreen Common Lisp](https://github.com/atgreen/evergreen), for Android.
 
 A view is a list:
 
@@ -26,26 +26,36 @@ view tree  ──layout──▶  absolute frames  ──render──▶  displa
 ```
 
 The display list is the whole contract with a backend: a flat, ordered sequence
-of absolute rectangles, painted back to front. Flat and absolute, so a backend
-needs no tree walk and no transform stack. `FLATTEN-TO-RECTS` reduces even text
-to rectangles, which is why a backend can be small:
+of absolute operations, painted back to front -- rectangles, rounded
+rectangles, shadows, outlines, glyph runs, paths, images and a clip stack. Flat
+and absolute, so a backend needs no tree walk and no transform stack. There are
+three:
 
-* **`backend/software`** — a plain RGBA buffer with no dependencies at all. This
-  is what makes the framework testable on any machine, with no GPU, no window
-  system, no emulator and no phone. It writes PPM, and prints frames as ASCII so
-  a rendering bug is visible in a terminal or a test failure.
-* **`backend/gles`** — six GL entry points. Every operation is an axis-aligned
-  rectangle of solid colour, and a scissored clear *is* "fill this rectangle", so
-  there is no shader, no texture, no vertex buffer and no glyph atlas. It scales
-  with ink rather than with area: the right trade for a UI, the wrong one for a
-  photograph.
+* **`backend/canvas`** -- the one a phone uses. It draws through
+  `android.graphics.Canvas`, which is Skia, reached over JNI from Lisp with no
+  Java in the application: real text shaping, antialiasing and blur, through
+  one foreign call per operation.
+* **`backend/software`** -- a plain RGBA buffer with no dependencies at all.
+  `FLATTEN-TO-RECTS` reduces even text to rectangles, which is what makes the
+  framework testable on any machine with no GPU, no window system, no emulator
+  and no phone. It writes PPM and prints frames as ASCII, so a rendering bug is
+  visible in a terminal or a test failure.
+* **`backend/gles`** -- six GL entry points, every operation an axis-aligned
+  rectangle of solid colour. It predates the Canvas backend and is kept for
+  the two examples that use it.
+
+Layout is memoised across frames by node identity: a subtree the application
+hands back unchanged is not measured again. Each frame is diffed against the
+last as operations, and only the operations inside the damaged rectangle
+reach the backend -- the cost of a frame is what changed, not what is on
+screen.
 
 ## Running it
 
 On a desktop, with no Android anything:
 
 ```sh
-egcl --load run-tests.lisp                       # 455 checks
+egcl --load run-tests.lisp                       # 463 checks
 egcl --load examples/run.lisp                    # prints a frame as ASCII art
 ```
 
@@ -58,51 +68,76 @@ egcl --eval '(require :asdf)' \
      --eval '(asdf:make "bliss/apk")'
 adb install -r --user 0 build/bliss.apk
 adb shell am start -n org.bliss.demo/android.app.NativeActivity
+adb logcat -s egcl
 ```
 
 `assets/app.lisp` names the demo; every `examples/android-*.lisp` is in the APK,
 so switching is one line. The load order lives in `load-order.sexp`, which is
 also an asset: the device loads what `bliss.asd` packaged and the two cannot
-disagree.
+disagree. `EGCL_APK_RUNTIME` points the build at a runtime other than the
+installed one.
 
 `--user 0` is deliberate and is not a default you should drop: on a device with a
 work profile, an unqualified `adb install` can put the app under a user you did
 not choose.
 
+The kitchen-sink demo logs, every ten frames, where the time went -- build,
+layout, render, present by operation kind, and the loop's own polling -- and
+`examples/android-bench.lisp` times each thing the frame loop does, loaded on
+request. Numbers in the source comments are measurements on a Pixel 10 Pro
+XL, and they are what the design decisions rest on.
+
 ## The primitives
 
-Five, and only five: `label`, `image`, `box`, `row` and `column`. A `box` with no
-children is a rectangle; a `box` with children **stacks** them on the z axis,
-which is the one arrangement `row` and `column` cannot express between them — a
-badge over an icon, a scrim over a sheet, a spinner centred on a panel.
+Eight: `label`, `paragraph`, `image`, `path`, `box`, `row`, `column` and
+`platform-view`. A `box` with no children is a rectangle; a `box` with children
+**stacks** them on the z axis, which is the one arrangement `row` and `column`
+cannot express between them -- a badge over an icon, a scrim over a sheet, a
+spinner centred on a panel. A `paragraph` is text broken to the width it is
+given; a `path` is vector geometry in its own coordinate space; a
+`platform-view` is a real `android.view.View` -- a WebView, say -- placed by
+the layout and moved when it moves.
 
 Everything else is a function. `button` is a `column` with a `label` in it;
-`switch`, `progress`, `scroll`, `virtual-list` and the rest are the same. A
-handler is a *property*, not a widget, so any node is touchable:
+`card`, `app-bar`, `scaffold`, `list-item`, `chip`, `checkbox`, `radio`,
+`switch`, `slider`, `tabs`, `snackbar`, `dialog`, `text-field`, `progress`,
+`scroll` and `virtual-list` are the same, drawn from a theme with two colour
+schemes, a type scale and a spacing scale. A handler is a *property*, not a
+widget, so any node is touchable, draggable, flingable, long-pressable:
 
 ```lisp
-(column (:on-press #'choose) …)
+(column (:on-press #'choose :on-drag #'scroll-it) ...)
 ```
 
 Icons are path data, converted from Material's SVG sources offline by
-`tools/make-icons.sh` — so an icon is Lisp you can print and diff, not an opaque
-glyph, and an application ships the ones it names rather than a whole font.
+`tools/make-icons.sh` -- so an icon is Lisp you can print and diff, not an
+opaque glyph, and an application ships the ones it names rather than a whole
+font.
 
 Adding a genuinely new primitive means a `measure-kind` and a `render-kind`
 method. Adding a widget means writing a function, and the framework does not need
 to be told.
 
+## On the phone
+
+Beyond drawing, and all without a line of Java or a DEX file: the soft
+keyboard and a text field that stays in view when it opens; window insets;
+touch with slop, drag chains that hand leftover movement to the scroller
+behind, fling with velocity, long press and double tap; what a screen reader
+can be told without a view hierarchy to give it (announcements and a screen
+description); state that survives the process being killed; and a REPL into
+the running application over `adb forward`.
+
 ## What this is not, yet
 
-Text is a 5x7 bitmap font in the software rasterizer. On a phone the Canvas
-backend draws through `android.graphics.Paint` — Skia, and therefore HarfBuzz and
-ICU — so shaping is real there, but line breaking, wrapping and bidi paragraphs
-are not: those want `android.text.StaticLayout`.
-
-There is no accessibility, no widget set to speak of (twelve, against Material
-3's hundred), no shadows and so no elevation, no icons, and the whole view tree
-is rebuilt every frame rather than recomposed. Scrolling has no fling and nothing
-survives a rotation. Those are known, not overlooked, and they are filed.
+Text wraps, but there is no bidi and no `StaticLayout`, so a paragraph is a
+run of lines, not a layout. Accessibility is announcements, not
+explore-by-touch: that needs a Java class, and there is none. Touch is one
+finger. Rotation is pinned off. The widget set is thirty against Material 3's
+hundred. And the whole view tree is rebuilt every frame rather than
+recomposed, which the layout memo makes cheap but not free -- on the Pixel a
+scroll frame is still tens of milliseconds of layout, and that is the current
+front.
 
 ## Licence
 
