@@ -16,6 +16,12 @@ Evergreen Compose supplies a shared, precompiled Android runtime. Application bu
 EGCL and `egcl-target-android` (runtime API 4), **no JDK, Kotlin compiler, Gradle,
 Android SDK or NDK**. Runtime maintainers use those tools to build the shared bundle.
 
+**Develop inside the running app.** Connect Emacs with SLY or
+[icl](https://github.com/atgreen/icl) to the phone's Lisp image through an
+ADB-forwarded Slynk port. Evaluate Lisp, inspect application state, and update
+the running UI without rebuilding or reinstalling the APK.
+See [Live development with Slynk](#live-development-with-slynk).
+
 ```lisp
 (defvar *count* 0)
 
@@ -77,6 +83,32 @@ finger/stylus ink, six colors, three brush sizes, undo/redo, a gallery, and name
 sketches saved on the device. Its commented Lisp source owns all app logic. The
 shared `:drawing-pad` control keeps active ink on the UI thread and reports
 completed strokes to Lisp. Build `evergreen-sketchbook/apk` from its `.asd`.
+
+## Live development with Slynk
+
+The app exposes its live Lisp image through **Slynk**, the protocol used by
+**Emacs with SLY** and [**icl**](https://github.com/atgreen/icl). With Slynk enabled
+in your development build, launch the app and forward its port over ADB:
+
+```sh
+adb forward tcp:4005 tcp:4005
+```
+
+In Emacs, run `M-x sly-connect`, choose `127.0.0.1`, and enter port `4005`.
+For a terminal REPL, connect with icl:
+
+```sh
+icl --connect 127.0.0.1:4005
+```
+
+You're evaluating code in the app's existing Lisp image, with its current state.
+The Compose host polls Slynk and refreshes the UI after serving requests.
+
+Slynk is opt-in: include EGCL-enabled Slynk sources in the development APK
+(the [Slynk asset helper](tools/sync-slynk.sh) prepares them), along with an
+`egcl.env` asset containing `EG_COMPOSE_LIVE_REPL=4005`. Declare these files as
+ASDF file components so the APK builder includes them. The listener binds to
+`127.0.0.1` on the device; ADB makes it accessible from your development machine.
 
 ## Build and run
 
