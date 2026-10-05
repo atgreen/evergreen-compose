@@ -21,6 +21,16 @@ This release establishes the first versioned baseline of Evergreen Compose
   completed-stroke events and read-only previews. Long gestures use bounded
   point thinning so drawing can continue beyond the event's point limit.
 
+### Live development
+
+- Development APKs can expose the running Lisp image through Slynk. Forward
+  its port with `adb forward tcp:4005 tcp:4005`, then connect from Emacs with
+  SLY or [icl](https://github.com/atgreen/icl) to evaluate code and inspect live
+  application state. The Compose host refreshes the UI after Slynk requests.
+- Slynk is opt-in: package the EGCL-enabled Slynk sources and an `egcl.env`
+  asset containing `EG_COMPOSE_LIVE_REPL=4005`. The listener binds to the
+  device's loopback interface. Other REPL protocols have not been validated.
+
 ### Data and examples
 
 - Selected Lisp variables can be saved to app-private storage and restored on
@@ -45,6 +55,9 @@ This release establishes the first versioned baseline of Evergreen Compose
   App builds do not fetch dependencies from the network.
 - Runtime bundle 1.4.0 uses protocol 1 and requires Android 9 / API 28 or later.
   Packaged native libraries and APK entries support 16 KB alignment.
+- Public Lisp packages and ASDF systems use `evergreen-compose`; Android
+  application identities use the `dev.egcl.compose` namespace. The verified
+  Fedora package pair is `egcl` / `egcl-target-android` 0.0.1-6.fc44.x86_64.
 - Distribution archives use a versioned top-level directory, normalized
   metadata, deterministic gzip output and a companion SHA-256 checksum.
   Private signing keys, local state, caches and unfinished examples are excluded.
@@ -56,6 +69,16 @@ This release establishes the first versioned baseline of Evergreen Compose
 - CI validates the distribution and fresh EGCL-only APK builds. Release
   automation checks matching version tags, supports manual build/test modes,
   and publishes verified archives, checksums and notes with build provenance.
+
+### Baseline validation
+
+- GitHub Actions runs the complete release gate on Fedora 44: 259 host checks,
+  runner and packaging failure checks, release-tool tests, ASDF checks, and
+  fresh demo, Hello and catalog APK builds using only EGCL on the build PATH.
+- The gate checks all three APKs for 16 KB native-library and ZIP alignment,
+  reproduces the source archive byte for byte, and verifies release checksums.
+- Device validation includes sample-app smoke checks and scoped drawing and
+  service tests. It does not establish complete Android instrumentation coverage.
 
 ### Known boundaries
 
@@ -71,7 +94,8 @@ This release establishes the first versioned baseline of Evergreen Compose
   rejection or image export.
 - Additional Compose libraries require a maintainer-built adapter and an
   updated shared runtime; arbitrary composables cannot be loaded by reflection.
-- Host tests cannot verify JNI, lifecycle, permissions or rendering. Hosted CI
-  and the complete Android instrumentation suite remain release-validation
-  follow-ups; the source preparation checks are described in
-  [the release guide](docs/RELEASING.md).
+- Host tests cannot verify JNI, lifecycle, permissions or rendering. The
+  complete Android instrumentation suite remains a follow-up, including repairs
+  to canvas/palette screenshot capture. See
+  [the release guide](https://github.com/atgreen/evergreen-compose/blob/v0.0.1/docs/RELEASING.md)
+  for the validation scope and release procedure.

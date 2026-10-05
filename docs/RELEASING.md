@@ -32,7 +32,7 @@ The public ASDF systems and examples use version `0.0.1`. The precompiled
 runtime keeps its independent version `1.4.0` and protocol `1`; these are not
 the library release number. Android version codes retain their existing values
 so development installations can still be updated using their original keys.
-The proposed release tag is `v0.0.1`, with [CHANGELOG.md](../CHANGELOG.md) as the
+The release tag is `v0.0.1`, with [CHANGELOG.md](../CHANGELOG.md) as the
 release notes. The tag and publication are separate from local preparation.
 
 Run the local gates (Python and shellcheck are maintainer tooling):
